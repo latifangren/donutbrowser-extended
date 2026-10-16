@@ -1,0 +1,70 @@
+name: Fork Build
+
+# Build the fork's dev branch and upload the installer as a workflow artifact
+# so it can be downloaded from the Actions tab and tested. This exists because
+# upstream's release workflows are gated with
+# `if: github.repository == 'zhom/donutbrowser'` and never run in forks.
+
+on:
+  push:
+    branches:
+      - dev-muse
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows:
+    name: Build Windows installer
+    runs-on: windows-latest
+    timeout-minutes: 90
+    env:
+      TARGET: x86_64-pc-windows-msvc
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workdir: ./src-tauri
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build sidecar binary (donut-proxy)
+        shell: bash
+        working-directory: ./src-tauri
+        run: cargo build --bin donut-proxy --target x86_64-pc-windows-msvc --release
+
+      - name: Build Tauri app (NSIS installer)
+        shell: bash
+        # beforeBuildCommand in tauri.conf.json runs
+        # `pnpm copy-proxy-binary:release && pnpm build`, so the proxy sidecar
+        # and the frontend are handled here. NEXT_PUBLIC_* vars are empty in
+        # the fork (no secrets) — the build inlines empty strings, same as
+        # upstream documents.
+        run: pnpm tauri build --target x86_64-pc-windows-msvc --bundles nsis
+
+      - name: Upload Windows installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: donutbrowser-windows-dev-muse
+          path: src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
+          retention-days: 14
