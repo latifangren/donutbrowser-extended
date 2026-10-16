@@ -72,7 +72,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { WayfernConfigForm } from "@/components/wayfern-config-form";
+import { FingerprintConfigForm } from "@/components/wayfern-config-form";
 import { useBrowserDownload } from "@/hooks/use-browser-download";
 import { useInputModality } from "@/hooks/use-input-modality";
 import { useProfileTemplates } from "@/hooks/use-profile-templates";
@@ -87,12 +87,15 @@ import { showErrorToast, showSuccessToast } from "@/lib/toast-utils";
 import { cn } from "@/lib/utils";
 import type {
   BrowserReleaseTypes,
+  BrowserTypeString,
   BulkCreateResult,
+  EngineCapabilities,
   ProfileTemplate,
   TemplateSettings,
-  WayfernConfig,
+  FingerprintConfig,
   WayfernOS,
 } from "@/types";
+import { ENGINE_CAPABILITIES } from "@/types";
 
 const PASSWORD_MIN_LEN = 8;
 /** The most profiles one bulk creation makes; the backend holds the same cap. */
@@ -108,7 +111,7 @@ const getCurrentOS = (): WayfernOS => {
   return "linux";
 };
 
-const defaultWayfernConfig = (): WayfernConfig => ({
+const defaultFingerprintConfig = (): FingerprintConfig => ({
   os: getCurrentOS(),
   screen_max_width:
     typeof window === "undefined" ? undefined : window.screen.width,
@@ -126,7 +129,7 @@ interface CreateProfileDialogProps {
     releaseType: string;
     proxyId?: string;
     vpnId?: string;
-    wayfernConfig?: WayfernConfig;
+    fingerprintConfig?: FingerprintConfig;
     groupId?: string;
     extensionGroupId?: string;
     ephemeral?: boolean;
@@ -158,11 +161,12 @@ export function CreateProfileDialog({
   const reduceMotion = useReducedMotion() ?? false;
   const inputModality = useInputModality();
   const [profileName, setProfileName] = useState("");
-  const [selectedBrowser, setSelectedBrowser] = useState<"wayfern" | "cloak">(
+  const [selectedBrowser, setSelectedBrowser] = useState<BrowserTypeString>(
     "wayfern",
   );
   const browserDisplayName =
     selectedBrowser === "cloak" ? "CloakBrowser" : "Wayfern";
+  const capabilities: EngineCapabilities = ENGINE_CAPABILITIES[selectedBrowser];
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [selectedProxyId, setSelectedProxyId] = useState<string>();
   const [proxyPopoverOpen, setProxyPopoverOpen] = useState(false);
@@ -173,8 +177,8 @@ export function CreateProfileDialog({
   const [dnsServerValid, setDnsServerValid] = useState(true);
   const [startPages, setStartPages] = useState("");
   const [launchHook, setLaunchHook] = useState("");
-  const [wayfernConfig, setWayfernConfig] =
-    useState<WayfernConfig>(defaultWayfernConfig);
+  const [fingerprintConfig, setFingerprintConfig] =
+    useState<FingerprintConfig>(defaultFingerprintConfig);
   const [isCreating, setIsCreating] = useState(false);
   const [ephemeral, setEphemeral] = useState(false);
   const templates = useProfileTemplates();
@@ -321,7 +325,7 @@ export function CreateProfileDialog({
     !creatableVersion ||
     downloading ||
     isCreating ||
-    (selectedBrowser === "wayfern" && hourlyCapReached) ||
+    (capabilities.generationAllowance && hourlyCapReached) ||
     !dnsServerValid;
   const selectedVpn = selectedProxyId?.startsWith("vpn-")
     ? vpnConfigs.find((vpn) => vpn.id === selectedProxyId.slice(4))
@@ -333,7 +337,7 @@ export function CreateProfileDialog({
     ? `WG — ${selectedVpn.name}`
     : (selectedProxy?.name ?? t("createProfile.proxy.noProxy"));
   const hostOs = getCurrentOS();
-  const selectedOs = wayfernConfig.os ?? hostOs;
+  const selectedOs = fingerprintConfig.os ?? hostOs;
   const crossOs = selectedOs !== hostOs;
   const SelectedOsIcon = getOSIcon(selectedOs);
 
@@ -360,7 +364,7 @@ export function CreateProfileDialog({
     setReleaseTypes({});
     setIsLoadingReleaseTypes(false);
     setReleaseTypesError(false);
-    setWayfernConfig(defaultWayfernConfig());
+    setFingerprintConfig(defaultFingerprintConfig());
     setEphemeral(false);
     setAppliedTemplate(null);
     setCount(1);
@@ -394,7 +398,7 @@ export function CreateProfileDialog({
       start_urls: startPagesFromText(startPages),
       launch_hook: launchHook.trim() || null,
       ephemeral,
-      wayfern_config: wayfernConfig,
+      fingerprint_config: fingerprintConfig,
     };
   };
 
@@ -407,9 +411,9 @@ export function CreateProfileDialog({
         ? `vpn-${settings.vpn_id}`
         : (settings.proxy_ids?.[0] ?? settings.proxy_id ?? undefined),
     );
-    setWayfernConfig({
-      ...defaultWayfernConfig(),
-      ...(settings.wayfern_config ?? {}),
+    setFingerprintConfig({
+      ...defaultFingerprintConfig(),
+      ...(settings.fingerprint_config ?? settings.wayfern_config ?? {}),
     });
     setDnsBlocklist(settings.dns_blocklist ?? "");
     setDnsServer(settings.dns_server ?? "");
@@ -547,7 +551,7 @@ export function CreateProfileDialog({
         releaseType: "stable",
         proxyId: isVpnSelection ? undefined : selectedProxyId,
         vpnId: isVpnSelection ? selectedProxyId?.slice(4) : undefined,
-        wayfernConfig,
+        fingerprintConfig,
         groupId:
           selectedGroupId && selectedGroupId !== "__all__"
             ? selectedGroupId
@@ -578,9 +582,9 @@ export function CreateProfileDialog({
     }
   };
 
-  const updateWayfernConfig = useCallback(
-    (key: keyof WayfernConfig, value: unknown) => {
-      setWayfernConfig((previous) => ({ ...previous, [key]: value }));
+  const updateFingerprintConfig = useCallback(
+    (key: keyof FingerprintConfig, value: unknown) => {
+      setFingerprintConfig((previous) => ({ ...previous, [key]: value }));
     },
     [],
   );
@@ -734,7 +738,7 @@ export function CreateProfileDialog({
                         const locked =
                           os !== hostOs &&
                           !crossOsUnlocked &&
-                          selectedBrowser === "wayfern";
+                          !capabilities.crossOsFingerprint;
                         const Icon = getOSIcon(os);
                         return (
                           <CommandItem
@@ -742,7 +746,7 @@ export function CreateProfileDialog({
                             value={os}
                             disabled={locked}
                             onSelect={() => {
-                              updateWayfernConfig("os", os);
+                              updateFingerprintConfig("os", os);
                               setOsPopoverOpen(false);
                             }}
                           >
@@ -1066,7 +1070,7 @@ export function CreateProfileDialog({
             </motion.div>
           )}
 
-          {selectedBrowser === "wayfern" && crossOs && (
+          {!capabilities.crossOsFingerprint && crossOs && (
             <motion.p
               role="status"
               className={cn(STATUS_CLASS, "items-start")}
@@ -1340,11 +1344,11 @@ export function CreateProfileDialog({
                           </Button>
                         </div>
                       )}
-                    {selectedBrowser === "wayfern" && (
-                      <WayfernConfigForm
+                    {capabilities.fullFingerprintUi && (
+                      <FingerprintConfigForm
                         className="[&_[data-slot=select-trigger]]:w-full"
-                        config={wayfernConfig}
-                        onConfigChange={updateWayfernConfig}
+                        config={fingerprintConfig}
+                        onConfigChange={updateFingerprintConfig}
                         isCreating
                         forceAdvanced
                         readOnly={isCreating}

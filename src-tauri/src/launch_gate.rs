@@ -525,7 +525,7 @@ mod tests {
       browser: "wayfern".into(),
       ..Default::default()
     };
-    profile.wayfern_config = Some(crate::wayfern_manager::WayfernConfig {
+    profile.fingerprint_config = Some(crate::wayfern_manager::FingerprintConfig {
       fingerprint: Some(fingerprint.to_string()),
       ..Default::default()
     });

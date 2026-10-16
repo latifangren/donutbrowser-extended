@@ -220,7 +220,9 @@ impl ProfilePatch {
       || self.restore_session.is_some()
       || self.new_device;
     if touches_device {
-      let config = profile.wayfern_config.get_or_insert_with(Default::default);
+      let config = profile
+        .fingerprint_config
+        .get_or_insert_with(Default::default);
       if let Some(randomize) = self.randomize_fingerprint_on_launch {
         config.randomize_fingerprint_on_launch = Some(randomize);
       }
@@ -308,7 +310,7 @@ mod tests {
     );
     assert_eq!(
       profile
-        .wayfern_config
+        .fingerprint_config
         .as_ref()
         .unwrap()
         .webrtc_mode
@@ -324,7 +326,7 @@ mod tests {
   #[test]
   fn a_new_device_drops_the_stored_identity_and_nothing_else() {
     let mut profile = BrowserProfile {
-      wayfern_config: Some(crate::wayfern_manager::WayfernConfig {
+      fingerprint_config: Some(crate::wayfern_manager::FingerprintConfig {
         identity_id: Some("id".into()),
         identity_overrides: Some("{}".into()),
         location: Some("{\"timezone\":\"Europe/Berlin\"}".into()),
@@ -338,7 +340,7 @@ mod tests {
       ..Default::default()
     }
     .apply_to(&mut profile));
-    let config = profile.wayfern_config.unwrap();
+    let config = profile.fingerprint_config.unwrap();
     assert_eq!(config.identity_id, None);
     assert_eq!(config.identity_overrides, None);
     assert_eq!(

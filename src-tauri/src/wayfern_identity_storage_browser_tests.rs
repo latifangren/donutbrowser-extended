@@ -24,7 +24,7 @@ async fn session_for(profile: &BrowserProfile, token: Option<&str>) -> HeadlessW
 }
 
 async fn answer(profile: &BrowserProfile, token: Option<&str>) -> Value {
-  let config = profile.wayfern_config.clone().unwrap_or_default();
+  let config = profile.fingerprint_config.clone().unwrap_or_default();
   let session = session_for(profile, token).await;
   let response = request(&session, conversion_params(profile, &config), false).await;
   session.stop().await;
@@ -80,7 +80,7 @@ async fn stored_profiles_convert_through_a_real_browser() {
         .await
         .unwrap_or_else(|e| panic!("profile {} did not launch: {e}", before.id)),
     };
-    let config = converted.wayfern_config.clone().unwrap_or_default();
+    let config = converted.fingerprint_config.clone().unwrap_or_default();
     assert_eq!(
       stored_shape(&config),
       StoredShape::Identity,
@@ -124,7 +124,7 @@ async fn stored_profiles_convert_through_a_real_browser() {
       "name": before.name,
       "entitled": token.is_some(),
       "answer": first_answer,
-      "stored": serde_json::to_value(&on_disk.wayfern_config).unwrap(),
+      "stored": serde_json::to_value(&on_disk.fingerprint_config).unwrap(),
       "document": document,
     });
     std::fs::write(
@@ -166,7 +166,7 @@ async fn stored_profiles_follow_an_upgrade() {
   std::fs::create_dir_all(&out).unwrap();
 
   for original in stored {
-    let config_before = original.wayfern_config.clone().unwrap_or_default();
+    let config_before = original.fingerprint_config.clone().unwrap_or_default();
     let shape_before = stored_shape(&config_before);
     let payload_keys: Vec<String> = stored_payload(&config_before)
       .map(|p| p.keys().cloned().collect())
@@ -202,7 +202,7 @@ async fn stored_profiles_follow_an_upgrade() {
         .await
         .unwrap_or_else(|e| panic!("profile {} did not launch: {e}", moved.id)),
     };
-    let config = converted.wayfern_config.clone().unwrap_or_default();
+    let config = converted.fingerprint_config.clone().unwrap_or_default();
     let on_disk = read_profile(&moved.id).expect("the converted profile is on disk");
     assert_eq!(config_value(&on_disk), config_value(&converted));
     assert!(
@@ -250,7 +250,7 @@ async fn stored_profiles_follow_an_upgrade() {
         "overrideKeys": a["overrides"].as_object().map(|o| o.keys().cloned().collect::<Vec<_>>()),
         "locationKeys": a["location"].as_object().map(|o| o.keys().cloned().collect::<Vec<_>>()),
       })),
-      "stored": serde_json::to_value(&on_disk.wayfern_config).unwrap(),
+      "stored": serde_json::to_value(&on_disk.fingerprint_config).unwrap(),
       "document": document,
     });
     std::fs::write(

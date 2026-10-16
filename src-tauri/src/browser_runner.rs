@@ -5,7 +5,7 @@ use crate::events;
 use crate::log_redaction::ShortId;
 use crate::profile::{BrowserProfile, ProfileManager};
 use crate::proxy_manager::PROXY_MANAGER;
-use crate::wayfern_manager::{WayfernConfig, WayfernManager};
+use crate::wayfern_manager::{FingerprintConfig, WayfernManager};
 use serde::Serialize;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -362,9 +362,9 @@ impl BrowserRunner {
         profile
       };
       // Get or create wayfern config
-      let mut wayfern_config = profile.wayfern_config.clone().unwrap_or_else(|| {
+      let mut wayfern_config = profile.fingerprint_config.clone().unwrap_or_else(|| {
         log::debug!("No wayfern config, using default profile={}", profile.id);
-        WayfernConfig::default()
+        FingerprintConfig::default()
       });
 
       emit_launch_stage(profile, "network", None);
@@ -633,7 +633,10 @@ impl BrowserRunner {
         };
 
         // Save the updated device to the profile so it persists.
-        let mut updated_wayfern_config = updated_profile.wayfern_config.clone().unwrap_or_default();
+        let mut updated_wayfern_config = updated_profile
+          .fingerprint_config
+          .clone()
+          .unwrap_or_default();
         updated_wayfern_config.identity_id = generated.identity_id;
         updated_wayfern_config.location = generated.location;
         updated_wayfern_config.identity_baseline = None;
@@ -662,7 +665,7 @@ impl BrowserRunner {
         } else {
           None
         };
-        updated_profile.wayfern_config = Some(updated_wayfern_config);
+        updated_profile.fingerprint_config = Some(updated_wayfern_config);
       }
       // A non-randomize profile keeps its configured fingerprint verbatim, even
       // when its proxy/VPN routing has changed since the fingerprint was built.
@@ -952,12 +955,14 @@ impl BrowserRunner {
     // so the fingerprint timezone matches the exit IP from then on.
     let mut profile = profile.clone();
     let needs_location = profile
-      .wayfern_config
+      .fingerprint_config
       .as_ref()
       .is_none_or(|c| c.location.as_ref().is_none_or(|s| s.is_empty()));
     if needs_location {
       if let Some(location) = Self::resolve_cloak_location(proxy.as_ref()).await {
-        let cfg = profile.wayfern_config.get_or_insert_with(Default::default);
+        let cfg = profile
+          .fingerprint_config
+          .get_or_insert_with(Default::default);
         cfg.location = Some(location);
         // Best-effort: the launch continues with an in-memory location even
         // if the persist fails.
@@ -968,7 +973,7 @@ impl BrowserRunner {
     }
 
     let browser = crate::browser::create_browser(crate::browser::BrowserType::Cloak);
-    let fingerprint = Self::cloak_fingerprint_material(&profile);
+    let fingerprint = Self::cloak_fingerprint_material(profile.fingerprint_config.as_ref());
     let mut args = browser
       .create_launch_args(
         &profile_path_str,
@@ -979,7 +984,9 @@ impl BrowserRunner {
       )
       .map_err(|e| err(format!("CloakBrowser launch args failed: {e}")))?;
     args.extend(browser.fingerprint_args(&fingerprint));
-    args.extend(Self::cloak_custom_launch_args(&profile));
+    args.extend(Self::cloak_custom_launch_args(
+      profile.fingerprint_config.as_ref(),
+    ));
 
     emit_launch_stage(&profile, "browser", None);
     let mut child = tokio::process::Command::new(&executable)
@@ -1062,20 +1069,20 @@ impl BrowserRunner {
   /// generated fingerprint flags. The creation-time allowlist already rejects
   /// managed switches (`--fingerprint*`, `--proxy-*`, …), so no filtering is
   /// needed here. Unlocked in this fork via `can_use_browser_automation`.
-  fn cloak_custom_launch_args(profile: &BrowserProfile) -> Vec<String> {
-    profile
-      .wayfern_config
-      .as_ref()
-      .map(|c| c.launch_args.clone())
-      .unwrap_or_default()
+  fn cloak_custom_launch_args(
+    config: Option<&crate::wayfern_manager::FingerprintConfig>,
+  ) -> Vec<String> {
+    config.map(|c| c.launch_args.clone()).unwrap_or_default()
   }
 
   /// Build the neutral fingerprint material for a CloakBrowser profile from
   /// its stored config. Unknown/absent fields are left empty; the engine
   /// derives them from the seed.
-  fn cloak_fingerprint_material(profile: &BrowserProfile) -> crate::browser::FingerprintMaterial {
+  fn cloak_fingerprint_material(
+    config: Option<&crate::wayfern_manager::FingerprintConfig>,
+  ) -> crate::browser::FingerprintMaterial {
     let mut fp = crate::browser::FingerprintMaterial::default();
-    let Some(cfg) = profile.wayfern_config.as_ref() else {
+    let Some(cfg) = config else {
       return fp;
     };
     fp.seed = cfg.fingerprint.clone().filter(|s| !s.is_empty());
@@ -2128,7 +2135,7 @@ fn drop_refused_override(
 ) -> Option<(BrowserProfile, String)> {
   let property = refused_override(error)?;
   let mut updated = profile.clone();
-  let config = updated.wayfern_config.as_mut()?;
+  let config = updated.fingerprint_config.as_mut()?;
   let mut overrides: serde_json::Map<String, serde_json::Value> =
     serde_json::from_str(config.identity_overrides.as_deref()?).ok()?;
   overrides.remove(&property)?;
@@ -2507,17 +2514,14 @@ mod tests {
 
   #[test]
   fn cloak_custom_launch_args_passthrough() {
-    let profile = BrowserProfile {
-      wayfern_config: Some(crate::wayfern_manager::WayfernConfig {
-        launch_args: vec!["--disable-gpu".to_string(), "--mute-audio".to_string()],
-        ..Default::default()
-      }),
+    let config = crate::wayfern_manager::FingerprintConfig {
+      launch_args: vec!["--disable-gpu".to_string(), "--mute-audio".to_string()],
       ..Default::default()
     };
     assert_eq!(
-      BrowserRunner::cloak_custom_launch_args(&profile),
+      BrowserRunner::cloak_custom_launch_args(Some(&config)),
       vec!["--disable-gpu".to_string(), "--mute-audio".to_string()]
     );
-    assert!(BrowserRunner::cloak_custom_launch_args(&BrowserProfile::default()).is_empty());
+    assert!(BrowserRunner::cloak_custom_launch_args(None).is_empty());
   }
 }

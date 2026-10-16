@@ -239,7 +239,7 @@ fn language_matches_country(cc: &str, language: &str) -> Option<bool> {
 /// apart again.
 fn fingerprint_locale(profile: &BrowserProfile) -> (Option<String>, Option<String>) {
   let Some(fp) = profile
-    .wayfern_config
+    .fingerprint_config
     .as_ref()
     .and_then(|config| config.location.as_deref().or(config.fingerprint.as_deref()))
     .and_then(crate::wayfern_manager::WayfernManager::fingerprint_object)
@@ -491,7 +491,7 @@ pub async fn match_profile_fingerprint_to_exit(
     .ok_or_else(|| serde_json::json!({ "code": "PROFILE_NOT_FOUND" }).to_string())?;
 
   let mut config = profile
-    .wayfern_config
+    .fingerprint_config
     .clone()
     .filter(|c| c.fingerprint.is_some() || c.identity_id.is_some())
     .ok_or_else(|| serde_json::json!({ "code": "FINGERPRINT_MATCH_FAILED" }).to_string())?;
@@ -521,7 +521,7 @@ pub async fn match_profile_fingerprint_to_exit(
     config.location = crate::wayfern_manager::WayfernManager::fingerprint_object(&refreshed)
       .and_then(|object| crate::wayfern_manager::WayfernManager::location_of(&object));
   }
-  profile.wayfern_config = Some(config);
+  profile.fingerprint_config = Some(config);
   manager.save_profile(&profile).map_err(|e| {
     serde_json::json!({ "code": "INTERNAL_ERROR", "params": { "detail": e.to_string() } })
       .to_string()
@@ -660,7 +660,7 @@ mod tests {
       browser: "wayfern".into(),
       ..Default::default()
     };
-    profile.wayfern_config = Some(crate::wayfern_manager::WayfernConfig {
+    profile.fingerprint_config = Some(crate::wayfern_manager::FingerprintConfig {
       fingerprint: Some(
         serde_json::json!({ "timezone": timezone, "language": language }).to_string(),
       ),
@@ -738,7 +738,7 @@ mod tests {
       browser: "wayfern".into(),
       ..Default::default()
     };
-    profile.wayfern_config = Some(crate::wayfern_manager::WayfernConfig {
+    profile.fingerprint_config = Some(crate::wayfern_manager::FingerprintConfig {
       fingerprint: Some(fingerprint.to_string()),
       ..Default::default()
     });

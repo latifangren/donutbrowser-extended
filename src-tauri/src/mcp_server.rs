@@ -7897,7 +7897,11 @@ impl McpServer {
 
     let fingerprint_info = match profile.browser.as_str() {
       "wayfern" => {
-        let config = profile.wayfern_config.as_ref().cloned().unwrap_or_default();
+        let config = profile
+          .fingerprint_config
+          .as_ref()
+          .cloned()
+          .unwrap_or_default();
         let fingerprint = crate::wayfern_manager::WayfernManager::instance()
           .profile_fingerprint(profile)
           .await
@@ -8036,7 +8040,11 @@ impl McpServer {
 
     match profile.browser.as_str() {
       "wayfern" => {
-        let mut config = profile.wayfern_config.as_ref().cloned().unwrap_or_default();
+        let mut config = profile
+          .fingerprint_config
+          .as_ref()
+          .cloned()
+          .unwrap_or_default();
         if let Some(fp) = fingerprint {
           config.fingerprint = Some(fp.to_string());
         }

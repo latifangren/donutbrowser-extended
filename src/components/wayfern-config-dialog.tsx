@@ -13,7 +13,7 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { translateBackendError } from "@/lib/backend-errors";
 import { getProfileNativeOs } from "@/lib/browser-utils";
-import type { BrowserProfile, WayfernConfig, WayfernOS } from "@/types";
+import type { BrowserProfile, FingerprintConfig, WayfernOS } from "@/types";
 import { LoadingButton } from "./loading-button";
 import { RippleButton } from "./ui/ripple";
 
@@ -25,25 +25,25 @@ const getCurrentOS = (): WayfernOS => {
   return "linux";
 };
 
-interface WayfernConfigDialogProps {
+interface FingerprintConfigDialogProps {
   isOpen: boolean;
   onClose: () => void;
   profile: BrowserProfile | null;
-  onSave: (profile: BrowserProfile, config: WayfernConfig) => Promise<void>;
+  onSave: (profile: BrowserProfile, config: FingerprintConfig) => Promise<void>;
   isRunning?: boolean;
   crossOsUnlocked?: boolean;
 }
 
-export function WayfernConfigDialog({
+export function FingerprintConfigDialog({
   isOpen,
   onClose,
   profile,
   onSave,
   isRunning = false,
   crossOsUnlocked = false,
-}: WayfernConfigDialogProps) {
+}: FingerprintConfigDialogProps) {
   const { t } = useTranslation();
-  const [config, setConfig] = useState<WayfernConfig>(() => ({
+  const [config, setConfig] = useState<FingerprintConfig>(() => ({
     geoip: true,
     os: getCurrentOS(),
   }));
@@ -53,12 +53,12 @@ export function WayfernConfigDialog({
     if (profile?.browser === "wayfern") {
       setConfig(
         // No `os` means the profile's native OS, which the form shows.
-        profile.wayfern_config || { geoip: true },
+        profile.fingerprint_config ?? profile.wayfern_config ?? { geoip: true },
       );
     }
   }, [profile]);
 
-  const updateConfig = (key: keyof WayfernConfig, value: unknown) => {
+  const updateConfig = (key: keyof FingerprintConfig, value: unknown) => {
     setConfig((prev) => ({ ...prev, [key]: value }));
   };
 
@@ -95,7 +95,7 @@ export function WayfernConfigDialog({
 
   const handleClose = () => {
     if (profile?.browser === "wayfern") {
-      setConfig(profile.wayfern_config || { geoip: true });
+      setConfig(profile.fingerprint_config ?? profile.wayfern_config ?? { geoip: true });
     }
     onClose();
   };

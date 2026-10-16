@@ -527,7 +527,7 @@ pub async fn import_profile_archive(
   drop(archive);
 
   let mut profile = imported_profile(&stored, &unique_imported_name(wanted, &taken))?;
-  if let Some(config) = profile.wayfern_config.as_mut() {
+  if let Some(config) = profile.fingerprint_config.as_mut() {
     config.sanitize_launch_args().await;
   }
   let data_dir = manager

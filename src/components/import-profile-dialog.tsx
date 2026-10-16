@@ -42,7 +42,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { WayfernConfigForm } from "@/components/wayfern-config-form";
+import { FingerprintConfigForm } from "@/components/wayfern-config-form";
 import { useGroupEvents } from "@/hooks/use-group-events";
 import { useProxyEvents } from "@/hooks/use-proxy-events";
 import { useVpnEvents } from "@/hooks/use-vpn-events";
@@ -60,7 +60,7 @@ import type {
   ProfileImportBatchResult,
   ProfileImportProgress,
   ProfileImportReport,
-  WayfernConfig,
+  FingerprintConfig,
 } from "@/types";
 import { RippleButton } from "./ui/ripple";
 
@@ -183,7 +183,7 @@ export function ImportProfileDialog({
   const [proxyAssignment, setProxyAssignment] = useState<string>("none");
   // "none" | a VPN config id (applied to every imported profile)
   const [vpnAssignment, setVpnAssignment] = useState<string>("none");
-  const [wayfernConfig, setWayfernConfig] = useState<WayfernConfig>({});
+  const [fingerprintConfig, setFingerprintConfig] = useState<FingerprintConfig>({});
   // Fingerprint + advanced options collapse behind disclosures — the default
   // path is just names + proxy/VPN.
   const [showFingerprint, setShowFingerprint] = useState(false);
@@ -426,7 +426,7 @@ export function ImportProfileDialog({
             items,
             groupId: selectedGroupId === "none" ? null : selectedGroupId,
             duplicateStrategy: duplicateStrategy,
-            wayfernConfig,
+            wayfernConfig: fingerprintConfig,
           },
         );
         const combined = previous
@@ -478,7 +478,7 @@ export function ImportProfileDialog({
       vpnAssignment,
       selectedGroupId,
       duplicateStrategy,
-      wayfernConfig,
+      fingerprintConfig,
       reducedMotion,
       result,
       t,
@@ -512,7 +512,7 @@ export function ImportProfileDialog({
     setDuplicateStrategy("rename");
     setProxyAssignment("none");
     setVpnAssignment("none");
-    setWayfernConfig({});
+    setFingerprintConfig({});
     setShowFingerprint(false);
     setShowAdvanced(false);
     setProgress(null);
@@ -963,10 +963,10 @@ export function ImportProfileDialog({
                     open={showFingerprint}
                     className="mt-3"
                   >
-                    <WayfernConfigForm
-                      config={wayfernConfig}
+                    <FingerprintConfigForm
+                      config={fingerprintConfig}
                       onConfigChange={(key, value) => {
-                        setWayfernConfig((prev) => ({ ...prev, [key]: value }));
+                        setFingerprintConfig((prev) => ({ ...prev, [key]: value }));
                       }}
                       isCreating={true}
                       crossOsUnlocked={crossOsUnlocked}

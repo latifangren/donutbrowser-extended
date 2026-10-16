@@ -1,4 +1,4 @@
-use crate::wayfern_manager::WayfernConfig;
+use crate::wayfern_manager::FingerprintConfig;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
@@ -38,8 +38,8 @@ pub struct BrowserProfile {
   pub last_launch: Option<u64>,
   #[serde(default = "default_release_type")]
   pub release_type: String,
-  #[serde(default)]
-  pub wayfern_config: Option<WayfernConfig>, // Wayfern configuration
+  #[serde(default, alias = "wayfern_config")]
+  pub fingerprint_config: Option<FingerprintConfig>, // Fingerprint configuration (any engine)
   #[serde(default)]
   pub group_id: Option<String>, // Reference to profile group
   #[serde(default)]
@@ -140,10 +140,12 @@ impl BrowserProfile {
   /// then falls back to the fingerprint config's `os` field (for profiles
   /// created before `host_os` was introduced or synced without it).
   pub fn resolved_os(&self) -> Option<&str> {
-    self
-      .host_os
-      .as_deref()
-      .or_else(|| self.wayfern_config.as_ref().and_then(|c| c.os.as_deref()))
+    self.host_os.as_deref().or_else(|| {
+      self
+        .fingerprint_config
+        .as_ref()
+        .and_then(|c| c.os.as_deref())
+    })
   }
 
   /// Whether this profile's directory runs on every supported OS, whichever OS
@@ -242,9 +244,9 @@ mod tests {
     }
     // A claimed OS with no recorded creating machine is not a reason either.
     let mut claimed = profile_from("wayfern", None);
-    claimed.wayfern_config = Some(WayfernConfig {
+    claimed.fingerprint_config = Some(FingerprintConfig {
       os: Some(other_host_os().to_string()),
-      ..WayfernConfig::default()
+      ..FingerprintConfig::default()
     });
     assert!(!claimed.is_cross_os());
   }

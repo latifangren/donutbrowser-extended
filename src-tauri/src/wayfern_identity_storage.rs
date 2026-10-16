@@ -3,7 +3,7 @@ use crate::profile::types::get_host_os;
 use crate::profile::{BrowserProfile, ProfileManager};
 use crate::wayfern_manager::{
   cdp_error_is_invalid_params, is_temporary_wayfern_failure, supports_wayfern_152, wayfern_failure,
-  HeadlessWayfern, WayfernConfig, WayfernManager,
+  FingerprintConfig, HeadlessWayfern, WayfernManager,
 };
 use serde_json::{json, Map, Value};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
@@ -68,7 +68,7 @@ fn launch_pending() -> bool {
   LAUNCHES.load(Ordering::SeqCst) > 0
 }
 
-fn stored_identity_id(config: &WayfernConfig) -> Option<&str> {
+fn stored_identity_id(config: &FingerprintConfig) -> Option<&str> {
   config
     .identity_id
     .as_deref()
@@ -76,7 +76,7 @@ fn stored_identity_id(config: &WayfernConfig) -> Option<&str> {
     .filter(|id| !id.is_empty())
 }
 
-fn stored_payload(config: &WayfernConfig) -> Option<Map<String, Value>> {
+fn stored_payload(config: &FingerprintConfig) -> Option<Map<String, Value>> {
   let json = config.fingerprint.as_deref()?;
   WayfernManager::launch_fingerprint_payload(json)
     .ok()?
@@ -85,7 +85,7 @@ fn stored_payload(config: &WayfernConfig) -> Option<Map<String, Value>> {
     .filter(|object| !object.is_empty())
 }
 
-pub fn stored_shape(config: &WayfernConfig) -> StoredShape {
+pub fn stored_shape(config: &FingerprintConfig) -> StoredShape {
   let payload = stored_payload(config).is_some();
   let baseline = !WayfernManager::stored_object(config.identity_baseline.as_deref()).is_empty();
   match (stored_identity_id(config).is_some(), payload, baseline) {
@@ -99,7 +99,7 @@ pub fn stored_shape(config: &WayfernConfig) -> StoredShape {
 pub fn needs_conversion(profile: &BrowserProfile) -> bool {
   profile.browser == "wayfern"
     && supports_wayfern_152(&profile.version)
-    && profile.wayfern_config.as_ref().is_some_and(|config| {
+    && profile.fingerprint_config.as_ref().is_some_and(|config| {
       config.randomize_fingerprint_on_launch != Some(true)
         && matches!(
           stored_shape(config),
@@ -108,7 +108,7 @@ pub fn needs_conversion(profile: &BrowserProfile) -> bool {
     })
 }
 
-pub fn conversion_params(profile: &BrowserProfile, config: &WayfernConfig) -> Value {
+pub fn conversion_params(profile: &BrowserProfile, config: &FingerprintConfig) -> Value {
   let mut params = Map::new();
   if let Some(payload) = stored_payload(config) {
     params.insert("fingerprint".to_string(), Value::Object(payload));
@@ -160,8 +160,8 @@ pub fn converted_profile(
 
   let mut updated = profile.clone();
   let config = updated
-    .wayfern_config
-    .get_or_insert_with(WayfernConfig::default);
+    .fingerprint_config
+    .get_or_insert_with(FingerprintConfig::default);
   config.identity_id = Some(identity_id.to_string());
   config.os = Some(os.to_string());
   config.identity_overrides = if overrides.is_empty() {
@@ -213,14 +213,14 @@ fn write_backup(profile: &BrowserProfile) -> Result<(), String> {
   let body = serde_json::to_vec_pretty(&json!({
     "profileId": profile.id.to_string(),
     "version": profile.version,
-    "wayfernConfig": profile.wayfern_config,
+    "wayfernConfig": profile.fingerprint_config,
   }))
   .map_err(|e| e.to_string())?;
   crate::app_dirs::write_owner_only(&path, &body).map_err(|e| e.to_string())
 }
 
 fn config_value(profile: &BrowserProfile) -> Value {
-  serde_json::to_value(&profile.wayfern_config).unwrap_or(Value::Null)
+  serde_json::to_value(&profile.fingerprint_config).unwrap_or(Value::Null)
 }
 
 fn internal(detail: impl std::fmt::Display) -> String {
@@ -274,7 +274,7 @@ async fn convert_and_save(
   interruptible: bool,
   wait_for_withheld: bool,
 ) -> Result<BrowserProfile, ConversionError> {
-  let config = profile.wayfern_config.clone().unwrap_or_default();
+  let config = profile.fingerprint_config.clone().unwrap_or_default();
   let response = request(session, conversion_params(profile, &config), interruptible).await?;
   if wait_for_withheld
     && response.get("withheld").and_then(Value::as_bool) == Some(true)
@@ -306,7 +306,7 @@ async fn convert_and_save(
   }
   write_backup(&current).map_err(|e| ConversionError::Deferred(internal(e)))?;
   let mut stored = current.clone();
-  stored.wayfern_config = updated.wayfern_config;
+  stored.fingerprint_config = updated.fingerprint_config;
   if stored.host_os.is_none() {
     stored.host_os = updated.host_os;
   }
@@ -560,7 +560,7 @@ pub fn request_conversion_pass() {
 mod tests {
   use super::*;
 
-  fn profile_with(version: &str, config: WayfernConfig) -> BrowserProfile {
+  fn profile_with(version: &str, config: FingerprintConfig) -> BrowserProfile {
     BrowserProfile {
       id: uuid::Uuid::parse_str("7d1f0f4e-9e36-4a0b-8c55-3f0c2c9f5a11").unwrap(),
       name: "stored".to_string(),
@@ -572,7 +572,7 @@ mod tests {
       launch_hook: None,
       last_launch: None,
       release_type: "stable".to_string(),
-      wayfern_config: Some(config),
+      fingerprint_config: Some(config),
       group_id: None,
       tags: Vec::new(),
       note: None,
@@ -618,16 +618,16 @@ mod tests {
 
   #[test]
   fn shapes_follow_what_the_config_stores() {
-    let empty = WayfernConfig::default();
+    let empty = FingerprintConfig::default();
     assert_eq!(stored_shape(&empty), StoredShape::Empty);
 
-    let payload_only = WayfernConfig {
+    let payload_only = FingerprintConfig {
       fingerprint: Some(payload()),
       ..Default::default()
     };
     assert_eq!(stored_shape(&payload_only), StoredShape::Payload);
 
-    let with_view = WayfernConfig {
+    let with_view = FingerprintConfig {
       identity_id: Some(LEGACY_ID.to_string()),
       fingerprint: Some(payload()),
       identity_baseline: Some(payload()),
@@ -635,14 +635,14 @@ mod tests {
     };
     assert_eq!(stored_shape(&with_view), StoredShape::IdentityWithView);
 
-    let baseline_only = WayfernConfig {
+    let baseline_only = FingerprintConfig {
       identity_id: Some(LEGACY_ID.to_string()),
       identity_baseline: Some(payload()),
       ..Default::default()
     };
     assert_eq!(stored_shape(&baseline_only), StoredShape::IdentityWithView);
 
-    let identity = WayfernConfig {
+    let identity = FingerprintConfig {
       identity_id: Some(CURRENT_ID.to_string()),
       location: Some(r#"{"timezone":"Europe/Berlin"}"#.to_string()),
       ..Default::default()
@@ -650,14 +650,14 @@ mod tests {
     assert_eq!(stored_shape(&identity), StoredShape::Identity);
 
     for unusable in ["{}", "null", "not json", "  "] {
-      let config = WayfernConfig {
+      let config = FingerprintConfig {
         fingerprint: Some(unusable.to_string()),
         ..Default::default()
       };
       assert_eq!(stored_shape(&config), StoredShape::Empty, "{unusable}");
     }
 
-    let wrapped = WayfernConfig {
+    let wrapped = FingerprintConfig {
       fingerprint: Some(format!(r#"{{"fingerprint":{}}}"#, payload())),
       ..Default::default()
     };
@@ -666,7 +666,7 @@ mod tests {
 
   #[test]
   fn only_stored_devices_on_152_are_converted() {
-    let payload_only = WayfernConfig {
+    let payload_only = FingerprintConfig {
       fingerprint: Some(payload()),
       ..Default::default()
     };
@@ -690,7 +690,7 @@ mod tests {
       randomized
     )));
 
-    let identity = WayfernConfig {
+    let identity = FingerprintConfig {
       identity_id: Some(CURRENT_ID.to_string()),
       ..Default::default()
     };
@@ -715,7 +715,7 @@ mod tests {
 
   #[test]
   fn the_request_carries_every_stored_part_and_the_profile_salt() {
-    let config = WayfernConfig {
+    let config = FingerprintConfig {
       identity_id: Some(format!(" {LEGACY_ID} ")),
       fingerprint: Some(format!(r#"{{"fingerprint":{}}}"#, payload())),
       identity_baseline: Some(r#"{"hardwareConcurrency":8}"#.to_string()),
@@ -733,7 +733,7 @@ mod tests {
     assert_eq!(params["fingerprint"]["languages"], json!(["de-DE", "de"]));
     assert!(params.get("operatingSystem").is_none());
 
-    let bare = WayfernConfig {
+    let bare = FingerprintConfig {
       fingerprint: Some(payload()),
       ..Default::default()
     };
@@ -765,7 +765,7 @@ mod tests {
 
   #[test]
   fn a_converted_profile_stores_only_the_identity_location_and_overrides() {
-    let config = WayfernConfig {
+    let config = FingerprintConfig {
       fingerprint: Some(payload()),
       identity_baseline: Some(payload()),
       geo_proxy_signature: Some("direct".to_string()),
@@ -775,7 +775,7 @@ mod tests {
     let profile = profile_with("152.0.7977.64", config);
 
     let converted = converted_profile(&profile, &response(json!({}))).unwrap();
-    let stored = converted.wayfern_config.as_ref().unwrap();
+    let stored = converted.fingerprint_config.as_ref().unwrap();
     assert_eq!(stored.identity_id.as_deref(), Some(CURRENT_ID));
     assert_eq!(stored.os.as_deref(), Some("windows"));
     assert!(stored.fingerprint.is_none());
@@ -802,7 +802,7 @@ mod tests {
       converted_profile(&profile, &response(json!({"hardwareConcurrency": 12}))).unwrap();
     let overrides = WayfernManager::stored_object(
       with_overrides
-        .wayfern_config
+        .fingerprint_config
         .as_ref()
         .unwrap()
         .identity_overrides
@@ -815,7 +815,7 @@ mod tests {
   fn an_incomplete_answer_is_never_stored() {
     let profile = profile_with(
       "152.0.7977.64",
-      WayfernConfig {
+      FingerprintConfig {
         fingerprint: Some(payload()),
         ..Default::default()
       },
@@ -846,7 +846,7 @@ mod tests {
     };
     let mut profile = profile_with(
       "152.0.7977.64",
-      WayfernConfig {
+      FingerprintConfig {
         fingerprint: Some(payload()),
         ..Default::default()
       },
@@ -905,7 +905,7 @@ mod tests {
     // browser that did not answer must all still open the profile on its
     // stored device. Returning an error here is a launch outage, and it has
     // reached a user twice.
-    let stored = profile_with("152.0.7977.64", WayfernConfig::default());
+    let stored = profile_with("152.0.7977.64", FingerprintConfig::default());
 
     for refusal in [
       ConversionError::Failed(crate::backend_error("WAYFERN_FINGERPRINT_APPLY_FAILED")),
@@ -921,7 +921,7 @@ mod tests {
     }
 
     // A successful conversion is what the caller gets instead.
-    let converted = profile_with("152.0.7977.64", WayfernConfig::default());
+    let converted = profile_with("152.0.7977.64", FingerprintConfig::default());
     let converted_id = converted.id;
     assert_eq!(
       launch_outcome(Ok(converted), stored.clone())

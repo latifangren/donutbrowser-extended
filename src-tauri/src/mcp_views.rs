@@ -259,7 +259,14 @@ pub fn profile_detail(profile: &BrowserProfile, names: &Names) -> Value {
       json!(profile.launch_hook.is_some()),
     );
     object.insert("running".into(), json!(running_state(profile, names)));
-    if let Some(Value::Object(config)) = object.get_mut("wayfern_config") {
+    // The profile serializes the config as `fingerprint_config`; the legacy
+    // `wayfern_config` key is accepted for older payloads.
+    let config_key = if object.contains_key("fingerprint_config") {
+      "fingerprint_config"
+    } else {
+      "wayfern_config"
+    };
+    if let Some(Value::Object(config)) = object.get_mut(config_key) {
       for field in [
         "fingerprint",
         "identity_baseline",
@@ -354,7 +361,7 @@ mod tests {
     shop.tags = vec!["eu".into()];
     shop.note = Some("x".repeat(500));
     shop.launch_hook = Some("https://hook.example/?token=secret".into());
-    shop.wayfern_config = Some(crate::wayfern_manager::WayfernConfig {
+    shop.fingerprint_config = Some(crate::wayfern_manager::FingerprintConfig {
       identity_overrides: Some("{\"a\":\"".to_string() + &"z".repeat(4000) + "\"}"),
       ..Default::default()
     });

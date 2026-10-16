@@ -5,7 +5,7 @@
 use crate::profile::patch::ProfilePatch;
 use crate::profile::{BrowserProfile, ProfileManager};
 use crate::sync::config_entities::{self, ConfigEntity, ConfigKind, ConfigStore};
-use crate::wayfern_manager::WayfernConfig;
+use crate::wayfern_manager::FingerprintConfig;
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -55,7 +55,7 @@ pub struct TemplateSettings {
   /// session restore, launch arguments). The device fields are always empty.
   #[serde(default)]
   #[schema(value_type = Option<Object>)]
-  pub wayfern_config: Option<WayfernConfig>,
+  pub fingerprint_config: Option<FingerprintConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
@@ -109,7 +109,7 @@ fn checked_name(name: &str) -> Result<String, String> {
 /// What describes a kind of device, never one device: the fields that
 /// identify a device, and a camera file that only exists on this computer,
 /// stay out of a template.
-fn portable(mut config: WayfernConfig) -> WayfernConfig {
+fn portable(mut config: FingerprintConfig) -> FingerprintConfig {
   config.fingerprint = None;
   config.identity_id = None;
   config.identity_baseline = None;
@@ -161,7 +161,7 @@ impl TemplateSettings {
     }
     .validated()?;
 
-    let mut wayfern_config = self.wayfern_config.map(portable);
+    let mut wayfern_config = self.fingerprint_config.map(portable);
     if let Some(config) = wayfern_config.as_mut() {
       config.launch_args = config.checked_launch_args().await?;
     }
@@ -184,7 +184,7 @@ impl TemplateSettings {
       ephemeral: self.ephemeral,
       // An ephemeral profile keeps nothing, so there is nothing to clear.
       clear_on_close: self.clear_on_close && !self.ephemeral,
-      wayfern_config,
+      fingerprint_config: wayfern_config,
     })
   }
 
@@ -223,7 +223,7 @@ impl TemplateSettings {
       launch_hook: profile.launch_hook.clone(),
       ephemeral: profile.ephemeral,
       clear_on_close: profile.clear_on_close,
-      wayfern_config: profile.wayfern_config.clone().map(portable),
+      fingerprint_config: profile.fingerprint_config.clone().map(portable),
     }
   }
 }
@@ -419,7 +419,7 @@ pub async fn create_profiles(
       .to_string()
   })?;
   let os = settings
-    .wayfern_config
+    .fingerprint_config
     .as_ref()
     .and_then(|c| c.os.as_deref());
   if !crate::cloud_auth::CLOUD_AUTH
@@ -481,7 +481,7 @@ pub async fn create_profiles(
         "stable",
         routes[index % routes.len()].clone(),
         settings.vpn_id.clone(),
-        Some(settings.wayfern_config.clone().unwrap_or_default()),
+        Some(settings.fingerprint_config.clone().unwrap_or_default()),
         settings.group_id.clone(),
         settings.ephemeral,
         settings.dns_blocklist.clone(),
@@ -624,7 +624,7 @@ mod tests {
 
   #[test]
   fn a_template_never_carries_a_device() {
-    let config = WayfernConfig {
+    let config = FingerprintConfig {
       fingerprint: Some("{\"a\":1}".to_string()),
       identity_id: Some("id".to_string()),
       identity_overrides: Some("{}".to_string()),
@@ -645,7 +645,7 @@ mod tests {
       name: "Shop".to_string(),
       note: Some("login for shop".to_string()),
       tags: vec!["shop".to_string()],
-      wayfern_config: Some(WayfernConfig {
+      fingerprint_config: Some(FingerprintConfig {
         fingerprint: Some("{}".to_string()),
         ..Default::default()
       }),
@@ -654,7 +654,7 @@ mod tests {
     let settings = TemplateSettings::from_profile(&profile);
     assert_eq!(settings.tags, ["shop"]);
     assert_eq!(settings.note, None, "a note belongs to its one profile");
-    assert!(settings.wayfern_config.unwrap().fingerprint.is_none());
+    assert!(settings.fingerprint_config.unwrap().fingerprint.is_none());
   }
 
   #[tokio::test]

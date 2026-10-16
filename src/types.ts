@@ -26,7 +26,9 @@ export interface BrowserProfile {
   process_id?: number;
   last_launch?: number;
   release_type: string;
-  wayfern_config?: WayfernConfig; // Wayfern configuration
+  fingerprint_config?: FingerprintConfig; // Fingerprint configuration (any engine)
+  /** @deprecated legacy key, kept for reading older cached data */
+  wayfern_config?: FingerprintConfig;
   group_id?: string; // Reference to profile group
   tags?: string[];
   note?: string; // User note
@@ -400,7 +402,9 @@ export interface TemplateSettings {
   launch_hook?: string | null;
   ephemeral?: boolean;
   clear_on_close?: boolean;
-  wayfern_config?: WayfernConfig | null;
+  fingerprint_config?: FingerprintConfig | null;
+  /** @deprecated legacy key, kept for reading older cached data */
+  wayfern_config?: FingerprintConfig | null;
 }
 
 export interface ProfileTemplate {
@@ -566,7 +570,7 @@ export interface PersonaField {
   value: string;
 }
 
-export interface WayfernConfig {
+export interface FingerprintConfig {
   proxy?: string;
   screen_max_width?: number;
   screen_max_height?: number;
@@ -1045,3 +1049,33 @@ export interface TrashedProfileSummary {
   /** Whether the profile synced when it was deleted. */
   sync_enabled: boolean;
 }
+
+/** Engine ids the UI knows about. Mirrors the Rust `BrowserType`. */
+export type BrowserTypeString = "wayfern" | "cloak";
+
+/** What a browser engine supports. Mirrors the Rust `EngineCapabilities`. */
+export interface EngineCapabilities {
+  /** Engine spoofs the OS natively (cross-OS needs no paywall). */
+  crossOsFingerprint: boolean;
+  /** Engine honors per-profile custom launch args. */
+  customLaunchArgs: boolean;
+  /** Creation counts against the hourly generation allowance. */
+  generationAllowance: boolean;
+  /** Full fingerprint editor UI vs the basic OS picker. */
+  fullFingerprintUi: boolean;
+}
+
+export const ENGINE_CAPABILITIES: Record<BrowserTypeString, EngineCapabilities> = {
+  wayfern: {
+    crossOsFingerprint: false,
+    customLaunchArgs: true,
+    generationAllowance: true,
+    fullFingerprintUi: true,
+  },
+  cloak: {
+    crossOsFingerprint: true,
+    customLaunchArgs: true,
+    generationAllowance: false,
+    fullFingerprintUi: false,
+  },
+};

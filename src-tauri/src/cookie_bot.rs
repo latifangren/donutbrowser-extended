@@ -1558,7 +1558,7 @@ mod tests {
 
   fn profile_in_zone(zone: &str) -> BrowserProfile {
     let mut profile = eligible_profile();
-    profile.wayfern_config = Some(crate::wayfern_manager::WayfernConfig {
+    profile.fingerprint_config = Some(crate::wayfern_manager::FingerprintConfig {
       fingerprint: Some(serde_json::json!({ "timezone": zone, "language": "de-DE" }).to_string()),
       ..Default::default()
     });

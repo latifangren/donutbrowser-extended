@@ -11,7 +11,7 @@ use crate::profile::types::{get_host_os, BrowserProfile, SyncMode};
 use crate::profile::ProfileManager;
 use crate::profile_import::report::ProfileImportReport;
 use crate::proxy_manager::PROXY_MANAGER;
-use crate::wayfern_manager::WayfernConfig;
+use crate::wayfern_manager::FingerprintConfig;
 
 /// Prefix for temp directories that hold extracted profile archives. Cleanup
 /// refuses to delete anything outside the system temp dir with this prefix.
@@ -651,7 +651,7 @@ impl ProfileImporter {
     items: Vec<ImportProfileItem>,
     group_id: Option<String>,
     duplicate_strategy: DuplicateStrategy,
-    wayfern_config: Option<WayfernConfig>,
+    wayfern_config: Option<FingerprintConfig>,
   ) -> Result<ProfileImportBatchResult, Box<dyn std::error::Error>> {
     if items.is_empty() {
       return Err(
@@ -836,7 +836,7 @@ impl ProfileImporter {
     proxy_id: Option<String>,
     vpn_id: Option<String>,
     group_id: Option<String>,
-    wayfern_config: Option<WayfernConfig>,
+    wayfern_config: Option<FingerprintConfig>,
     allow_running: bool,
   ) -> Result<(BrowserProfile, ProfileImportReport), Box<dyn std::error::Error>> {
     let source_path = Path::new(source_path);
@@ -933,7 +933,7 @@ impl ProfileImporter {
       }
     };
 
-    let final_wayfern_config = if mapped == "wayfern" {
+    let final_fingerprint_config = if mapped == "wayfern" {
       let mut config = wayfern_config.unwrap_or_default();
       config.sanitize_launch_args().await;
 
@@ -984,7 +984,7 @@ impl ProfileImporter {
           process_id: None,
           last_launch: None,
           release_type: "stable".to_string(),
-          wayfern_config: None,
+          fingerprint_config: None,
           group_id: None,
           tags: Vec::new(),
           note: None,
@@ -1068,7 +1068,7 @@ impl ProfileImporter {
       process_id: None,
       last_launch: None,
       release_type: "stable".to_string(),
-      wayfern_config: final_wayfern_config,
+      fingerprint_config: final_fingerprint_config,
       group_id,
       tags: Vec::new(),
       note: None,
@@ -1214,7 +1214,7 @@ pub async fn import_browser_profiles(
   items: Vec<ImportProfileItem>,
   group_id: Option<String>,
   duplicate_strategy: Option<DuplicateStrategy>,
-  wayfern_config: Option<WayfernConfig>,
+  wayfern_config: Option<FingerprintConfig>,
 ) -> Result<ProfileImportBatchResult, String> {
   // The Pro gate for fingerprint OS spoofing lives inside import_profiles.
   let importer = ProfileImporter::instance();

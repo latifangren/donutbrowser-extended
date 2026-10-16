@@ -1906,7 +1906,7 @@ async fn generate_sample_fingerprint(
     launch_hook: None,
     last_launch: None,
     release_type: "stable".to_string(),
-    wayfern_config: None,
+    fingerprint_config: None,
     group_id: None,
     tags: Vec::new(),
     note: None,
@@ -1932,7 +1932,7 @@ async fn generate_sample_fingerprint(
   };
 
   if browser == "wayfern" {
-    let config: crate::wayfern_manager::WayfernConfig =
+    let config: crate::wayfern_manager::FingerprintConfig =
       serde_json::from_str(&config_json).map_err(|e| format!("Failed to parse config: {e}"))?;
     let manager = crate::wayfern_manager::WayfernManager::instance();
     manager

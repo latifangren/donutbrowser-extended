@@ -33,7 +33,7 @@ import { useCloudAuth } from "@/hooks/use-cloud-auth";
 import { getEntitlements } from "@/lib/entitlements";
 import type {
   PersonaField,
-  WayfernConfig,
+  FingerprintConfig,
   WayfernFingerprintConfig,
   WayfernOS,
   WebRtcMode,
@@ -168,9 +168,9 @@ function PersonaEditor({
   );
 }
 
-interface WayfernConfigFormProps {
-  config: WayfernConfig;
-  onConfigChange: (key: keyof WayfernConfig, value: unknown) => void;
+interface FingerprintConfigFormProps {
+  config: FingerprintConfig;
+  onConfigChange: (key: keyof FingerprintConfig, value: unknown) => void;
   className?: string;
   isCreating?: boolean;
   forceAdvanced?: boolean;
@@ -194,7 +194,7 @@ export function LaunchArgumentsEditor({
   config,
   onConfigChange,
   readOnly,
-}: Pick<WayfernConfigFormProps, "config" | "onConfigChange"> & {
+}: Pick<FingerprintConfigFormProps, "config" | "onConfigChange"> & {
   readOnly: boolean;
 }) {
   const { t } = useTranslation();
@@ -245,7 +245,7 @@ export function LaunchArgumentsEditor({
   );
 }
 
-const isFingerprintEditingDisabled = (config: WayfernConfig): boolean => {
+const isFingerprintEditingDisabled = (config: FingerprintConfig): boolean => {
   return config.randomize_fingerprint_on_launch === true;
 };
 
@@ -273,7 +273,7 @@ const osLabels: Record<WayfernOS, string> = {
   ios: "iOS",
 };
 
-export function WayfernConfigForm({
+export function FingerprintConfigForm({
   config,
   onConfigChange,
   className = "",
@@ -287,7 +287,7 @@ export function WayfernConfigForm({
   profileBrowser,
   profileId,
   nativeOS,
-}: WayfernConfigFormProps) {
+}: FingerprintConfigFormProps) {
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState(
     forceAdvanced ? "manual" : "automatic",

@@ -1,6 +1,6 @@
 use super::*;
 use crate::profile::BrowserProfile;
-use crate::wayfern_manager::{HeadlessWayfern, WayfernConfig, WayfernManager};
+use crate::wayfern_manager::{FingerprintConfig, HeadlessWayfern, WayfernManager};
 use serde_json::{json, Value};
 use std::path::{Path as FsPath, PathBuf};
 
@@ -55,14 +55,14 @@ fn install(root: &FsPath, dir: &FsPath, version: &str) {
     .success());
 }
 
-fn profile(version: &str, config: WayfernConfig) -> BrowserProfile {
+fn profile(version: &str, config: FingerprintConfig) -> BrowserProfile {
   let profile = BrowserProfile {
     id: uuid::Uuid::new_v4(),
     name: format!("fingerprint {}", uuid::Uuid::new_v4()),
     browser: "wayfern".to_string(),
     version: version.to_string(),
     release_type: "stable".to_string(),
-    wayfern_config: Some(config),
+    fingerprint_config: Some(config),
     host_os: Some(crate::profile::types::get_host_os()),
     ..Default::default()
   };
@@ -200,7 +200,7 @@ async fn every_read_path_shows_the_device_an_identity_presents() {
   // A new profile stores its identity and location, never the device.
   let created = profile(
     &version,
-    WayfernConfig {
+    FingerprintConfig {
       identity_id: Some(minted_identity(&version, &host).await),
       location: Some(LOCATION.to_string()),
       ..Default::default()
@@ -226,8 +226,11 @@ async fn every_read_path_shows_the_device_an_identity_presents() {
     4
   };
   let mut edited = created.clone();
-  edited.wayfern_config.as_mut().unwrap().identity_overrides =
-    Some(json!({ "hardwareConcurrency": edited_cores }).to_string());
+  edited
+    .fingerprint_config
+    .as_mut()
+    .unwrap()
+    .identity_overrides = Some(json!({ "hardwareConcurrency": edited_cores }).to_string());
   ProfileManager::instance().save_profile(&edited).unwrap();
   let with_edit = read(&edited).await.unwrap().unwrap();
   assert_eq!(with_edit["hardwareConcurrency"], json!(edited_cores));
@@ -244,7 +247,7 @@ async fn every_read_path_shows_the_device_an_identity_presents() {
   // A claim off this machine's OS.
   let cross_os = profile(
     &version,
-    WayfernConfig {
+    FingerprintConfig {
       identity_id: Some(minted_identity(&version, other).await),
       os: Some(other.to_string()),
       location: Some(LOCATION.to_string()),
@@ -264,7 +267,7 @@ async fn every_read_path_shows_the_device_an_identity_presents() {
 
   // A regenerated device replaces the identity; the new one reads in full.
   let mut regenerated = created.clone();
-  regenerated.wayfern_config.as_mut().unwrap().identity_id =
+  regenerated.fingerprint_config.as_mut().unwrap().identity_id =
     Some(minted_identity(&version, &host).await);
   ProfileManager::instance()
     .save_profile(&regenerated)
@@ -280,7 +283,7 @@ async fn every_read_path_shows_the_device_an_identity_presents() {
   assert_full(&payload, "legacy payload");
   let legacy = profile(
     &version,
-    WayfernConfig {
+    FingerprintConfig {
       fingerprint: Some(payload.to_string()),
       ..Default::default()
     },
@@ -293,7 +296,7 @@ async fn every_read_path_shows_the_device_an_identity_presents() {
   let migrated = crate::wayfern_identity_storage::convert_for_launch(&legacy)
     .await
     .unwrap();
-  let config = migrated.wayfern_config.clone().unwrap();
+  let config = migrated.fingerprint_config.clone().unwrap();
   assert!(config.identity_id.is_some() && config.fingerprint.is_none());
   let carried = read(&migrated).await.unwrap().expect("a migrated device");
   assert_full(&carried, "migrated profile");

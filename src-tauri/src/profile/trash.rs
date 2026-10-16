@@ -553,7 +553,7 @@ pub async fn empty_trash() -> Result<usize, String> {
 #[cfg(test)]
 mod tests {
   use super::*;
-  use crate::wayfern_manager::WayfernConfig;
+  use crate::wayfern_manager::FingerprintConfig;
   use tempfile::TempDir;
 
   const NOW: u64 = 1_700_000_000;
@@ -569,11 +569,11 @@ mod tests {
       group_id: Some("group-1".to_string()),
       tags: vec!["shop".to_string(), "eu".to_string()],
       release_type: "stable".to_string(),
-      wayfern_config: Some(WayfernConfig {
+      fingerprint_config: Some(FingerprintConfig {
         identity_id: Some("identity-42".to_string()),
         identity_overrides: Some(r#"{"userAgent":"custom"}"#.to_string()),
         location: Some(r#"{"timezone":"Europe/Berlin"}"#.to_string()),
-        ..WayfernConfig::default()
+        ..FingerprintConfig::default()
       }),
       updated_at: Some(NOW - 1000),
       ..BrowserProfile::default()
@@ -659,7 +659,7 @@ mod tests {
     assert_eq!(restored.group_id.as_deref(), Some("group-1"));
     assert_eq!(restored.tags, vec!["shop", "eu"]);
     assert_eq!(restored.updated_at, Some(NOW + 60));
-    let config = restored.wayfern_config.as_ref().unwrap();
+    let config = restored.fingerprint_config.as_ref().unwrap();
     assert_eq!(config.identity_id.as_deref(), Some("identity-42"));
     assert_eq!(
       config.identity_overrides.as_deref(),

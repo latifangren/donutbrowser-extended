@@ -271,7 +271,7 @@ pub fn get_profile_persona(
     .into_iter()
     .find(|profile| profile.id.to_string() == profile_id)
     .ok_or_else(|| crate::backend_error("PROFILE_NOT_FOUND"))?;
-  let config = profile.wayfern_config.unwrap_or_default();
+  let config = profile.fingerprint_config.unwrap_or_default();
   let seed = config
     .identity_id
     .as_deref()

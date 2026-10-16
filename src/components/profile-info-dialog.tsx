@@ -110,7 +110,7 @@ import type {
   ProfileGroup,
   StoredProxy,
   VpnConfig,
-  WayfernConfig,
+  FingerprintConfig,
 } from "@/types";
 
 interface ProfileInfoDialogProps {
@@ -2636,18 +2636,18 @@ function FingerprintSectionInline({
   onSaved: () => void;
   t: (key: string, options?: Record<string, unknown>) => string;
 }) {
-  const [wayfernConfig, setWayfernConfig] = React.useState<WayfernConfig>(
-    () => profile.wayfern_config ?? {},
+  const [fingerprintConfig, setFingerprintConfig] = React.useState<FingerprintConfig>(
+    () => profile.fingerprint_config ?? profile.wayfern_config ?? {},
   );
   const [isSaving, setIsSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [success, setSuccess] = React.useState<string | null>(null);
 
   React.useEffect(() => {
-    setWayfernConfig(profile.wayfern_config ?? {});
+    setFingerprintConfig(profile.fingerprint_config ?? profile.wayfern_config ?? {});
     setError(null);
     setSuccess(null);
-  }, [profile.wayfern_config]);
+  }, [profile.fingerprint_config, profile.wayfern_config]);
 
   const isWayfern = profile.browser === "wayfern";
 
@@ -2665,8 +2665,8 @@ function FingerprintSectionInline({
     );
   }
 
-  const onWayfernChange = (key: keyof WayfernConfig, value: unknown) => {
-    setWayfernConfig((prev) => ({ ...prev, [key]: value }));
+  const onFingerprintChange = (key: keyof FingerprintConfig, value: unknown) => {
+    setFingerprintConfig((prev) => ({ ...prev, [key]: value }));
     setSuccess(null);
   };
 
@@ -2677,7 +2677,7 @@ function FingerprintSectionInline({
     try {
       await invoke("update_wayfern_config", {
         profileId: profile.id,
-        config: wayfernConfig,
+        config: fingerprintConfig,
       });
       setSuccess(t("common.buttons.saved"));
       onSaved();
@@ -2688,8 +2688,10 @@ function FingerprintSectionInline({
     }
   };
 
-  const initial = JSON.stringify(profile.wayfern_config ?? {});
-  const current = JSON.stringify(wayfernConfig);
+  const initial = JSON.stringify(
+    profile.fingerprint_config ?? profile.wayfern_config ?? {},
+  );
+  const current = JSON.stringify(fingerprintConfig);
   const dirty = current !== initial;
 
   return (
@@ -2704,8 +2706,8 @@ function FingerprintSectionInline({
 
       {crossOsUnlocked ? (
         <SharedFingerprintConfigForm
-          config={wayfernConfig}
-          onConfigChange={onWayfernChange}
+          config={fingerprintConfig}
+          onConfigChange={onFingerprintChange}
           forceAdvanced={true}
           readOnly={isDisabled}
           crossOsUnlocked={crossOsUnlocked}
@@ -2727,8 +2729,8 @@ function FingerprintSectionInline({
             </p>
           </div>
           <LaunchArgumentsEditor
-            config={wayfernConfig}
-            onConfigChange={onWayfernChange}
+            config={fingerprintConfig}
+            onConfigChange={onFingerprintChange}
             readOnly={isDisabled}
           />
         </>
@@ -2756,7 +2758,7 @@ function FingerprintSectionInline({
             variant="ghost"
             className="h-7 text-xs"
             onClick={() => {
-              setWayfernConfig(profile.wayfern_config ?? {});
+              setFingerprintConfig(profile.fingerprint_config ?? {});
               setError(null);
               setSuccess(null);
             }}

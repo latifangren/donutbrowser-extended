@@ -117,7 +117,10 @@ impl From<&crate::profile::types::BrowserProfile> for ApiProfile {
       cloud_sync_enabled: profile.is_sync_enabled(),
       host_os: profile.resolved_os().map(|os| os.to_string()),
       is_cross_os: profile.is_cross_os(),
-      fingerprint_os: profile.wayfern_config.as_ref().and_then(|c| c.os.clone()),
+      fingerprint_os: profile
+        .fingerprint_config
+        .as_ref()
+        .and_then(|c| c.os.clone()),
     }
   }
 }
@@ -165,7 +168,8 @@ pub struct CreateProfileRequest {
   /// generated automatically at creation. Provide a `fingerprint` field to
   /// pin a specific one.
   #[schema(value_type = Option<Object>)]
-  pub wayfern_config: Option<serde_json::Value>,
+  #[serde(alias = "wayfern_config")]
+  pub fingerprint_config: Option<serde_json::Value>,
   pub group_id: Option<String>,
   pub tags: Option<Vec<String>>,
   /// Keep the profile's browsing data in memory only, so nothing it browses
@@ -738,7 +742,8 @@ struct ImportProfilesRequest {
   /// Wayfern fingerprint/config applied to every imported profile. Omit to
   /// have fresh fingerprints generated automatically.
   #[schema(value_type = Option<Object>)]
-  wayfern_config: Option<serde_json::Value>,
+  #[serde(alias = "wayfern_config")]
+  fingerprint_config: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -1792,22 +1797,22 @@ async fn create_profile(
   // Parse wayfern config if provided. A malformed config is a 400, never a
   // silent fallback: swallowing it here produced a host-OS profile from a
   // request that explicitly asked for another OS, with a 200 and no diagnostic.
-  let wayfern_config: Option<crate::wayfern_manager::WayfernConfig> = match &request.wayfern_config
-  {
-    Some(config) => Some(serde_json::from_value(config.clone()).map_err(|e| {
-      (
-        StatusCode::BAD_REQUEST,
-        format!("Invalid wayfern_config: {e}"),
-      )
-    })?),
-    None => None,
-  };
+  let fingerprint_config: Option<crate::wayfern_manager::FingerprintConfig> =
+    match &request.fingerprint_config {
+      Some(config) => Some(serde_json::from_value(config.clone()).map_err(|e| {
+        (
+          StatusCode::BAD_REQUEST,
+          format!("Invalid fingerprint_config: {e}"),
+        )
+      })?),
+      None => None,
+    };
 
   // Cross-OS fingerprints are a paid capability. The Tauri command, the
   // importer and MCP each check this; REST did not, so the restriction was
   // bypassable through this endpoint alone.
   if !crate::cloud_auth::CLOUD_AUTH
-    .is_fingerprint_os_allowed(wayfern_config.as_ref().and_then(|c| c.os.as_deref()))
+    .is_fingerprint_os_allowed(fingerprint_config.as_ref().and_then(|c| c.os.as_deref()))
     .await
   {
     return Err((
@@ -1858,7 +1863,7 @@ async fn create_profile(
       request.release_type.as_deref().unwrap_or("stable"),
       request.proxy_id.clone(),
       request.vpn_id.clone(),
-      wayfern_config,
+      fingerprint_config,
       request.group_id.clone(),
       request.ephemeral.unwrap_or(false) || request.temporary.unwrap_or(false),
       None,
@@ -5060,12 +5065,12 @@ async fn import_profiles_api(
   // A malformed config is a 400. Dropping it silently also dropped the `os`
   // it carried, which made `is_fingerprint_os_allowed(None)` return true and
   // bypassed the Pro gate below while generating host-OS fingerprints.
-  let wayfern_config: Option<crate::wayfern_manager::WayfernConfig> =
-    match request.wayfern_config.as_ref() {
+  let fingerprint_config: Option<crate::wayfern_manager::FingerprintConfig> =
+    match request.fingerprint_config.as_ref() {
       Some(config) => Some(serde_json::from_value(config.clone()).map_err(|e| {
         (
           StatusCode::BAD_REQUEST,
-          format!("Invalid wayfern_config: {e}"),
+          format!("Invalid fingerprint_config: {e}"),
         )
       })?),
       None => None,
@@ -5080,7 +5085,7 @@ async fn import_profiles_api(
       request.items,
       request.group_id,
       request.duplicate_strategy.unwrap_or_default(),
-      wayfern_config,
+      fingerprint_config,
     )
     .await
     .map(Json)
@@ -5893,18 +5898,18 @@ mod tests {
       serde_json::from_str(json).expect("version and configs are optional");
     assert_eq!(parsed.browser, "wayfern");
     assert!(parsed.version.is_none());
-    assert!(parsed.wayfern_config.is_none());
+    assert!(parsed.fingerprint_config.is_none());
   }
 
   #[test]
-  fn wayfern_config_os_survives_the_untyped_request_field() {
+  fn fingerprint_config_os_survives_the_untyped_request_field() {
     // `wayfern_config` arrives as an untyped Value and is only turned into a
-    // WayfernConfig inside the handler. That second hop is where an `os` used
+    // FingerprintConfig inside the handler. That second hop is where an `os` used
     // to be lost, so assert it round-trips.
     let json = r#"{"name": "p", "browser": "wayfern", "wayfern_config": {"os": "android"}}"#;
     let parsed: CreateProfileRequest = serde_json::from_str(json).expect("body must parse");
-    let config: crate::wayfern_manager::WayfernConfig =
-      serde_json::from_value(parsed.wayfern_config.expect("config present"))
+    let config: crate::wayfern_manager::FingerprintConfig =
+      serde_json::from_value(parsed.fingerprint_config.expect("config present"))
         .expect("a well-formed config must parse");
     assert_eq!(config.os.as_deref(), Some("android"));
   }
@@ -5944,20 +5949,20 @@ mod tests {
       "wayfern_config": { "launch_args": ["--disable-gpu"] }
     }))
     .unwrap();
-    let config: crate::wayfern_manager::WayfernConfig =
-      serde_json::from_value(request.wayfern_config.unwrap()).unwrap();
+    let config: crate::wayfern_manager::FingerprintConfig =
+      serde_json::from_value(request.fingerprint_config.unwrap()).unwrap();
     assert_eq!(config.launch_args, vec!["--disable-gpu"]);
   }
 
   #[test]
-  fn malformed_wayfern_config_is_an_error_not_a_default() {
+  fn malformed_fingerprint_config_is_an_error_not_a_default() {
     // `fingerprint` is a JSON-encoded string, so passing an object fails to
     // parse. The handler must surface that as a 400: previously `.ok()` threw
     // the whole config away, dropping the caller's `os` with it and returning
     // a host-OS profile with 200 and no diagnostic.
     let json = r#"{"os": "android", "fingerprint": {"platform": "Linux armv81"}}"#;
     let value: serde_json::Value = serde_json::from_str(json).expect("value parses");
-    let parsed = serde_json::from_value::<crate::wayfern_manager::WayfernConfig>(value);
+    let parsed = serde_json::from_value::<crate::wayfern_manager::FingerprintConfig>(value);
     assert!(
       parsed.is_err(),
       "an object fingerprint must not silently deserialize"
@@ -6468,8 +6473,8 @@ mod tests {
 
     let create_profile = schema_required(&spec, "CreateProfileRequest");
     assert!(
-      !create_profile.iter().any(|f| f == "wayfern_config"),
-      "wayfern_config must be optional, required list: {create_profile:?}"
+      !create_profile.iter().any(|f| f == "fingerprint_config"),
+      "fingerprint_config must be optional, required list: {create_profile:?}"
     );
 
     // `ApiProfile` is the response body of every profile-returning route, so a
@@ -6538,7 +6543,7 @@ mod tests {
     }
 
     let import_profiles = schema_required(&spec, "ImportProfilesRequest");
-    for field in ["group_id", "duplicate_strategy", "wayfern_config"] {
+    for field in ["group_id", "duplicate_strategy", "fingerprint_config"] {
       assert!(
         !import_profiles.iter().any(|f| f == field),
         "{field} must be optional on profile import, required list: {import_profiles:?}"

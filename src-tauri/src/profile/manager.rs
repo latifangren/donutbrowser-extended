@@ -4,7 +4,7 @@ use crate::downloaded_browsers_registry::DownloadedBrowsersRegistry;
 use crate::events;
 use crate::profile::types::{get_host_os, is_host_os, BrowserProfile, SyncMode};
 use crate::proxy_manager::PROXY_MANAGER;
-use crate::wayfern_manager::WayfernConfig;
+use crate::wayfern_manager::FingerprintConfig;
 use std::fs::{self, create_dir_all};
 use std::path::{Path, PathBuf};
 use sysinfo::{Pid, ProcessRefreshKind, RefreshKind, System};
@@ -82,16 +82,16 @@ pub struct ProfileManager {
 /// A clone is created on this machine, but its fingerprint keeps the OS its
 /// source claimed. An unset `os` means the source's native OS, which the
 /// clone's own native OS, this machine, would otherwise replace.
-fn keep_source_claim(config: &mut WayfernConfig, source_native_os: String) {
+fn keep_source_claim(config: &mut FingerprintConfig, source_native_os: String) {
   if config.os.is_none() && source_native_os != get_host_os() {
     config.os = Some(source_native_os);
   }
 }
 
-fn merge_submitted_wayfern_config(
-  stored: Option<&WayfernConfig>,
-  mut config: WayfernConfig,
-) -> WayfernConfig {
+fn merge_submitted_fingerprint_config(
+  stored: Option<&FingerprintConfig>,
+  mut config: FingerprintConfig,
+) -> FingerprintConfig {
   let mut keeps_identity_view = false;
   if let Some(stored) = stored {
     if config.identity_id.is_none()
@@ -205,7 +205,7 @@ impl ProfileManager {
     release_type: &str,
     proxy_id: Option<String>,
     vpn_id: Option<String>,
-    mut wayfern_config: Option<WayfernConfig>,
+    mut wayfern_config: Option<FingerprintConfig>,
     group_id: Option<String>,
     ephemeral: bool,
     dns_blocklist: Option<String>,
@@ -286,7 +286,7 @@ impl ProfileManager {
     }
 
     // For Wayfern profiles, generate fingerprint during creation
-    let final_wayfern_config = if browser == "wayfern" {
+    let final_fingerprint_config = if browser == "wayfern" {
       let mut config = wayfern_config.unwrap_or_default();
 
       // Always ensure executable_path is set to the user's binary location
@@ -375,7 +375,7 @@ impl ProfileManager {
           process_id: None,
           last_launch: None,
           release_type: release_type.to_string(),
-          wayfern_config: None,
+          fingerprint_config: None,
           group_id: group_id.clone(),
           tags: Vec::new(),
           note: None,
@@ -495,7 +495,7 @@ impl ProfileManager {
       process_id: None,
       last_launch: None,
       release_type: release_type.to_string(),
-      wayfern_config: final_wayfern_config,
+      fingerprint_config: final_fingerprint_config,
       group_id: group_id.clone(),
       tags: Vec::new(),
       note: None,
@@ -1134,7 +1134,7 @@ impl ProfileManager {
     // Every other direction falls through untouched.
     let target_speaks_identity_api = crate::wayfern_manager::supports_identity_api(version);
     if let Some(cfg) = profile
-      .wayfern_config
+      .fingerprint_config
       .as_mut()
       .filter(|c| c.identity_id.is_some() && !target_speaks_identity_api)
     {
@@ -1743,7 +1743,7 @@ impl ProfileManager {
       process_id: None,
       last_launch: None,
       release_type: source.release_type,
-      wayfern_config: source.wayfern_config,
+      fingerprint_config: source.fingerprint_config,
       group_id: source.group_id,
       tags: source.tags,
       note: source.note,
@@ -1784,7 +1784,7 @@ impl ProfileManager {
     // user-data-dir copy above still duplicates cookies/localStorage/TLS state —
     // a separate storage-linkage vector the user must clear if they want full
     // isolation between a clone and its source.
-    if let Some(cfg) = new_profile.wayfern_config.as_mut() {
+    if let Some(cfg) = new_profile.fingerprint_config.as_mut() {
       cfg.fingerprint = None;
       // The identity is a stronger link than the payload: the same UUID rebuilds
       // the SAME device on any version, so a clone that kept it would stay
@@ -1807,7 +1807,7 @@ impl ProfileManager {
     &self,
     app_handle: tauri::AppHandle,
     profile_id: &str,
-    mut config: WayfernConfig,
+    mut config: FingerprintConfig,
   ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     config.launch_args = config.checked_launch_args().await?;
     // Find the profile by ID
@@ -1838,9 +1838,9 @@ impl ProfileManager {
       return Err(crate::backend_error("PROFILE_RUNNING").into());
     }
 
-    let config = merge_submitted_wayfern_config(profile.wayfern_config.as_ref(), config);
+    let config = merge_submitted_fingerprint_config(profile.fingerprint_config.as_ref(), config);
 
-    let stored = profile.wayfern_config.as_ref();
+    let stored = profile.fingerprint_config.as_ref();
     let fingerprint_changed = config.fingerprint.is_some()
       && config.fingerprint.as_ref() != stored.and_then(|c| c.fingerprint.as_ref());
     let overrides_changed = config.identity_overrides.is_some()
@@ -1863,7 +1863,7 @@ impl ProfileManager {
 
     // Update the Wayfern configuration
     if profile
-      .wayfern_config
+      .fingerprint_config
       .as_ref()
       .map(serde_json::to_value)
       .transpose()?
@@ -1871,7 +1871,7 @@ impl ProfileManager {
     {
       profile.updated_at = Some(crate::proxy_manager::now_secs());
     }
-    profile.wayfern_config = Some(config);
+    profile.fingerprint_config = Some(config);
 
     // Save the updated profile
     self
@@ -2354,8 +2354,8 @@ mod tests {
   const EDITED_VIEW: &str =
     r#"{"platform":"Win32","hardwareConcurrency":16,"timezone":"Europe/Berlin"}"#;
 
-  fn stored_view() -> WayfernConfig {
-    WayfernConfig {
+  fn stored_view() -> FingerprintConfig {
+    FingerprintConfig {
       identity_id: Some("id-1".to_string()),
       fingerprint: Some(VIEW.to_string()),
       identity_baseline: Some(VIEW.to_string()),
@@ -2366,12 +2366,12 @@ mod tests {
   #[test]
   fn a_submitted_config_keeps_a_stored_identity_view() {
     let stored = stored_view();
-    let submitted = WayfernConfig {
+    let submitted = FingerprintConfig {
       fingerprint: Some(VIEW.to_string()),
       identity_overrides: Some(r#"{"doNotTrack":"1"}"#.to_string()),
       ..Default::default()
     };
-    let merged = merge_submitted_wayfern_config(Some(&stored), submitted);
+    let merged = merge_submitted_fingerprint_config(Some(&stored), submitted);
     assert_eq!(merged.identity_id.as_deref(), Some("id-1"));
     assert_eq!(merged.fingerprint.as_deref(), Some(VIEW));
     assert_eq!(merged.identity_baseline.as_deref(), Some(VIEW));
@@ -2380,11 +2380,11 @@ mod tests {
       Some(r#"{"doNotTrack":"1"}"#)
     );
 
-    let edited = WayfernConfig {
+    let edited = FingerprintConfig {
       fingerprint: Some(EDITED_VIEW.to_string()),
       ..Default::default()
     };
-    let merged = merge_submitted_wayfern_config(Some(&stored), edited);
+    let merged = merge_submitted_fingerprint_config(Some(&stored), edited);
     assert_eq!(merged.fingerprint.as_deref(), Some(EDITED_VIEW));
     assert_eq!(merged.identity_baseline.as_deref(), Some(VIEW));
     assert!(merged.identity_overrides.is_none());
@@ -2392,16 +2392,16 @@ mod tests {
 
   #[test]
   fn a_submitted_fingerprint_for_a_plain_identity_becomes_overrides() {
-    let stored = WayfernConfig {
+    let stored = FingerprintConfig {
       identity_id: Some("id-1".to_string()),
       location: Some(r#"{"timezone":"Europe/Berlin"}"#.to_string()),
       ..Default::default()
     };
-    let submitted = WayfernConfig {
+    let submitted = FingerprintConfig {
       fingerprint: Some(EDITED_VIEW.to_string()),
       ..Default::default()
     };
-    let merged = merge_submitted_wayfern_config(Some(&stored), submitted);
+    let merged = merge_submitted_fingerprint_config(Some(&stored), submitted);
     assert_eq!(merged.identity_id.as_deref(), Some("id-1"));
     assert!(merged.fingerprint.is_none());
     assert!(merged.identity_baseline.is_none());
@@ -2420,16 +2420,16 @@ mod tests {
 
   #[test]
   fn a_submitted_payload_without_a_stored_identity_stays_a_payload() {
-    let stored = WayfernConfig {
+    let stored = FingerprintConfig {
       fingerprint: Some(VIEW.to_string()),
       ..Default::default()
     };
-    let submitted = WayfernConfig {
+    let submitted = FingerprintConfig {
       fingerprint: Some(EDITED_VIEW.to_string()),
       identity_baseline: Some(VIEW.to_string()),
       ..Default::default()
     };
-    let merged = merge_submitted_wayfern_config(Some(&stored), submitted);
+    let merged = merge_submitted_fingerprint_config(Some(&stored), submitted);
     assert!(merged.identity_id.is_none());
     assert_eq!(merged.fingerprint.as_deref(), Some(EDITED_VIEW));
     assert!(merged.identity_baseline.is_none());
@@ -2449,7 +2449,7 @@ mod tests {
     assert!(holds_profile(legacy, &expected).unwrap());
 
     let mut changed = expected.clone();
-    changed.wayfern_config.as_mut().unwrap().identity_id = Some("id-1".to_string());
+    changed.fingerprint_config.as_mut().unwrap().identity_id = Some("id-1".to_string());
     assert!(!holds_profile(legacy, &changed).unwrap());
   }
 
@@ -2474,20 +2474,20 @@ mod tests {
       "windows"
     };
 
-    let mut from_elsewhere = WayfernConfig::default();
+    let mut from_elsewhere = FingerprintConfig::default();
     keep_source_claim(&mut from_elsewhere, other.to_string());
     assert_eq!(from_elsewhere.os.as_deref(), Some(other));
 
-    let mut from_here = WayfernConfig::default();
+    let mut from_here = FingerprintConfig::default();
     keep_source_claim(&mut from_here, host.clone());
     assert_eq!(
       from_here.os, None,
       "a clone made where its source was made is unchanged"
     );
 
-    let mut explicit = WayfernConfig {
+    let mut explicit = FingerprintConfig {
       os: Some("android".to_string()),
-      ..WayfernConfig::default()
+      ..FingerprintConfig::default()
     };
     keep_source_claim(&mut explicit, other.to_string());
     assert_eq!(explicit.os.as_deref(), Some("android"));
@@ -2732,7 +2732,7 @@ pub async fn create_browser_profile_with_group(
   release_type: String,
   proxy_id: Option<String>,
   vpn_id: Option<String>,
-  wayfern_config: Option<WayfernConfig>,
+  wayfern_config: Option<FingerprintConfig>,
   group_id: Option<String>,
   ephemeral: bool,
   dns_blocklist: Option<String>,
@@ -2961,7 +2961,7 @@ pub async fn create_browser_profile_new(
   release_type: String,
   proxy_id: Option<String>,
   vpn_id: Option<String>,
-  wayfern_config: Option<WayfernConfig>,
+  wayfern_config: Option<FingerprintConfig>,
   group_id: Option<String>,
   ephemeral: Option<bool>,
   dns_blocklist: Option<String>,
@@ -2974,13 +2974,15 @@ pub async fn create_browser_profile_new(
 
   let browser_type =
     BrowserType::from_str(&browser_str).map_err(|e| format!("Invalid browser type: {e}"))?;
+  let capabilities = crate::browser::create_browser(browser_type.clone()).capabilities();
 
   let mut wayfern_config = wayfern_config;
-  if browser_type == BrowserType::Cloak {
-    // CloakBrowser spoofs cross-OS natively via launch flags: no paywall.
-    // Seed + OS defaults so every cloak profile has fingerprint material.
-    // Timezone/location resolve proxy-aware at first launch.
-    let cfg = wayfern_config.get_or_insert_with(WayfernConfig::default);
+  if capabilities.cross_os_fingerprint {
+    // Engines that spoof the OS natively (CloakBrowser via launch flags)
+    // need no paywall. Seed + OS defaults so every such profile has
+    // fingerprint material. Timezone/location resolve proxy-aware at first
+    // launch.
+    let cfg = wayfern_config.get_or_insert_with(FingerprintConfig::default);
     if cfg.fingerprint.as_ref().is_none_or(|s| s.is_empty()) {
       cfg.fingerprint = Some(crate::browser::generate_fingerprint_seed());
     }
@@ -2988,7 +2990,8 @@ pub async fn create_browser_profile_new(
       cfg.os = Some(std::env::consts::OS.to_string());
     }
   } else {
-    // Wayfern's cross-OS fingerprint stays behind the PRO gate.
+    // Wayfern's cross-OS fingerprint stays behind the PRO gate: the binary
+    // itself refuses it, so lifting the gate would only move the failure.
     let fingerprint_os = wayfern_config.as_ref().and_then(|c| c.os.as_deref());
     if !crate::cloud_auth::CLOUD_AUTH
       .is_fingerprint_os_allowed(fingerprint_os)
@@ -3030,7 +3033,7 @@ pub async fn create_browser_profile_new(
 pub async fn update_wayfern_config(
   app_handle: tauri::AppHandle,
   profile_id: String,
-  config: WayfernConfig,
+  config: FingerprintConfig,
 ) -> Result<(), String> {
   let profile_manager = ProfileManager::instance();
   profile_manager

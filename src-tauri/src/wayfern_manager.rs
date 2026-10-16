@@ -13,8 +13,15 @@ use tokio::process::Command as TokioCommand;
 use tokio::sync::Mutex as AsyncMutex;
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
+/// Per-profile fingerprint and launch configuration.
+///
+/// Legacy name was `FingerprintConfig`; renamed to the engine-neutral
+/// `FingerprintConfig` when the CloakBrowser engine landed. Engines consume
+/// only the fields they understand (see `EngineCapabilities`); Wayfern-only
+/// fields are ignored by other engines. Stored on the profile as
+/// `fingerprint_config` (`wayfern_config` still accepted on read).
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct WayfernConfig {
+pub struct FingerprintConfig {
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub fingerprint: Option<String>,
   #[serde(default)]
@@ -94,7 +101,7 @@ pub struct WayfernConfig {
   pub location: Option<String>,
 }
 
-impl WayfernConfig {
+impl FingerprintConfig {
   pub async fn checked_launch_args(&self) -> Result<Vec<String>, String> {
     let has_args = self.launch_args.iter().any(|arg| !arg.trim().is_empty());
     let allowed = !has_args
@@ -435,7 +442,7 @@ pub enum LaunchKind {
 /// restored tab, which then carries the host device for its whole lifetime,
 /// so such a launch starts on a fresh tab instead and the log says why.
 pub fn session_restore_verdict(
-  config: &WayfernConfig,
+  config: &FingerprintConfig,
   kind: LaunchKind,
   headless: bool,
   ephemeral: bool,
@@ -525,7 +532,7 @@ impl WebRtcMode {
   /// The mode a stored config asks for. `webrtc_mode` wins; the legacy
   /// `block_webrtc: true` reads as `block`; anything else is `auto`. An
   /// unknown string is `auto` too, logged by the caller, never a launch error.
-  pub fn from_config(config: &WayfernConfig) -> Self {
+  pub fn from_config(config: &FingerprintConfig) -> Self {
     if let Some(mode) = config.webrtc_mode.as_deref().and_then(Self::parse) {
       return mode;
     }
@@ -800,7 +807,7 @@ pub fn persona_switch(
 /// The camera switches for a launch. A file that is not there is still passed,
 /// so the camera serves dark frames rather than the computer's own camera; the
 /// log line here names the file.
-pub fn camera_switches(version: &str, config: &WayfernConfig) -> Vec<String> {
+pub fn camera_switches(version: &str, config: &FingerprintConfig) -> Vec<String> {
   if !supports_wayfern_152(version) {
     return Vec::new();
   }
@@ -1304,12 +1311,12 @@ impl ProbeTransport {
 /// supports identities.
 pub struct GeneratedFingerprint {
   /// The device the browser produced, as a flat camelCase JSON object. For a
-  /// LEGACY browser this is what `WayfernConfig::fingerprint` stores. For an
+  /// LEGACY browser this is what `FingerprintConfig::fingerprint` stores. For an
   /// identity-backed profile it is a VIEW for the caller to show once and
   /// discard: only `identity_id` and `location` are persisted.
   pub fingerprint: String,
   pub identity_id: Option<String>,
-  /// `WayfernConfig::location` for the exit this device was generated
+  /// `FingerprintConfig::location` for the exit this device was generated
   /// against, or `None` when no location field was resolved.
   pub location: Option<String>,
   /// Whether fresh geolocation was resolved and applied. Callers must only
@@ -1454,7 +1461,7 @@ impl WayfernManager {
       .or_else(|| pair("screenWidth", "screenHeight"))
   }
 
-  /// The fingerprint value a stored `WayfernConfig::fingerprint` string holds:
+  /// The fingerprint value a stored `FingerprintConfig::fingerprint` string holds:
   /// the object itself, or the one nested in the legacy
   /// `{ "fingerprint": {...} }` wrapper some old profiles carry.
   ///
@@ -1523,7 +1530,7 @@ impl WayfernManager {
   }
 
   /// The exit-derived location fields a device object carries, in the shape
-  /// `WayfernConfig::location` stores; `None` when it carries none.
+  /// `FingerprintConfig::location` stores; `None` when it carries none.
   pub fn location_of(device: &serde_json::Map<String, serde_json::Value>) -> Option<String> {
     let mut location = serde_json::Map::new();
     for key in LOCALE_CARRY_OVER_KEYS {
@@ -1565,7 +1572,7 @@ impl WayfernManager {
   /// profile stores and the view the browser derived from the identity.
   ///
   /// The fingerprint form writes the whole edited object back over
-  /// `WayfernConfig::fingerprint`, so the edits are not recorded anywhere on
+  /// `FingerprintConfig::fingerprint`, so the edits are not recorded anywhere on
   /// their own; the baseline is what makes them recoverable. Everything absent
   /// from the diff is supplied by the identity.
   ///
@@ -1710,13 +1717,13 @@ impl WayfernManager {
 
   /// The OS this profile claims, or `None` when nothing on it says so.
   ///
-  /// `WayfernConfig::os` is authoritative because it is what generation was
+  /// `FingerprintConfig::os` is authoritative because it is what generation was
   /// asked for; the stored fingerprint's `platform` is the fallback for
   /// profiles minted before that field existed. Deliberately conservative — an
   /// unrecognised value on either yields `None` rather than a guess, because
   /// the only caller uses this to REFUSE a launch.
   fn claimed_operating_system(
-    config: &WayfernConfig,
+    config: &FingerprintConfig,
     stored: Option<&serde_json::Map<String, serde_json::Value>>,
   ) -> Option<&'static str> {
     if let Some(os) = config.os.as_deref().and_then(Self::normalize_os_name) {
@@ -1743,7 +1750,7 @@ impl WayfernManager {
   /// `native_os` is `BrowserProfile::native_os`: the OS a profile without an
   /// explicit claim was generated for, which stays its claim on every machine.
   pub fn launch_identity_document(
-    config: &WayfernConfig,
+    config: &FingerprintConfig,
     native_os: &str,
   ) -> Option<serde_json::Value> {
     if config.fingerprint.is_some() {
@@ -1797,7 +1804,7 @@ impl WayfernManager {
   /// profile's device: the id, the claimed OS, the user's edits and the stored
   /// location. `None` for a profile that stores a device payload or no id.
   fn identity_params(
-    config: &WayfernConfig,
+    config: &FingerprintConfig,
     native_os: &str,
   ) -> Option<serde_json::Map<String, serde_json::Value>> {
     if config.fingerprint.is_some() {
@@ -2456,7 +2463,7 @@ impl WayfernManager {
     &self,
     _app_handle: &AppHandle,
     profile: &BrowserProfile,
-    config: &WayfernConfig,
+    config: &FingerprintConfig,
   ) -> Result<GeneratedFingerprint, Box<dyn std::error::Error + Send + Sync>> {
     let wayfern_token = crate::cloud_auth::CLOUD_AUTH.get_wayfern_token().await;
     let session = HeadlessWayfern::start(
@@ -2653,7 +2660,7 @@ impl WayfernManager {
     &self,
     profile: &BrowserProfile,
   ) -> Result<Option<String>, String> {
-    let config = profile.wayfern_config.clone().unwrap_or_default();
+    let config = profile.fingerprint_config.clone().unwrap_or_default();
     if config.fingerprint.is_some() {
       return Ok(config.fingerprint);
     }
@@ -2703,7 +2710,7 @@ impl WayfernManager {
     _app_handle: &AppHandle,
     profile: &BrowserProfile,
     profile_path: &str,
-    config: &WayfernConfig,
+    config: &FingerprintConfig,
     url: Option<&str>,
     proxy_url: Option<&str>,
     ephemeral: bool,
@@ -3852,7 +3859,7 @@ impl WayfernManager {
     &self,
     app_handle: &AppHandle,
     profile: &BrowserProfile,
-    config: &WayfernConfig,
+    config: &FingerprintConfig,
     url: Option<&str>,
     proxy_url: Option<&str>,
   ) -> Result<WayfernLaunchResult, Box<dyn std::error::Error + Send + Sync>> {
@@ -3971,14 +3978,14 @@ mod tests {
 
   #[test]
   fn launch_args_default_and_round_trip() {
-    let legacy: WayfernConfig = serde_json::from_str("{}").unwrap();
+    let legacy: FingerprintConfig = serde_json::from_str("{}").unwrap();
     assert!(legacy.launch_args.is_empty());
-    let config: WayfernConfig = serde_json::from_str(
+    let config: FingerprintConfig = serde_json::from_str(
       r#"{"launch_args":["--disable-gpu","--disk-cache-dir=/tmp/cache with spaces"]}"#,
     )
     .unwrap();
     let saved = serde_json::to_string(&config).unwrap();
-    let loaded: WayfernConfig = serde_json::from_str(&saved).unwrap();
+    let loaded: FingerprintConfig = serde_json::from_str(&saved).unwrap();
     assert_eq!(loaded.launch_args, config.launch_args);
   }
 
@@ -4515,7 +4522,7 @@ mod tests {
     serde_json::from_str(json).expect("test fixture must be an object")
   }
 
-  fn identity_config(timezone: Option<&str>) -> WayfernConfig {
+  fn identity_config(timezone: Option<&str>) -> FingerprintConfig {
     let mut location = serde_json::Map::new();
     if let Some(tz) = timezone {
       location.insert("timezone".into(), json!(tz));
@@ -4525,7 +4532,7 @@ mod tests {
     location.insert("languages".into(), json!(["de-DE", "de"]));
     location.insert("latitude".into(), json!(52.52));
     location.insert("longitude".into(), json!(13.405));
-    WayfernConfig {
+    FingerprintConfig {
       identity_id: Some("3fa85f64-5717-4562-b3fc-2c963f66afa6".into()),
       os: Some("windows".into()),
       location: Some(serde_json::Value::Object(location).to_string()),
@@ -4698,7 +4705,7 @@ mod tests {
     );
     assert!(launch_pages(None, &pages, LaunchKind::Automation).is_empty());
     assert!(session_restore_verdict(
-      &WayfernConfig::default(),
+      &FingerprintConfig::default(),
       LaunchKind::Interactive,
       false,
       false,
@@ -4711,8 +4718,8 @@ mod tests {
 
   #[test]
   fn session_restore_is_only_for_a_person_on_a_device_committed_at_launch() {
-    let config = WayfernConfig::default();
-    let interactive = |c: &WayfernConfig| {
+    let config = FingerprintConfig::default();
+    let interactive = |c: &FingerprintConfig| {
       session_restore_verdict(c, LaunchKind::Interactive, false, false, false, true, false)
     };
     assert_eq!(interactive(&config), Ok(()));
@@ -4769,17 +4776,17 @@ mod tests {
       .is_err(),
       "a device applied after the window opens loses the race with a restored tab"
     );
-    let off = WayfernConfig {
+    let off = FingerprintConfig {
       restore_session: Some(false),
       ..Default::default()
     };
     assert!(interactive(&off).is_err());
-    let randomized = WayfernConfig {
+    let randomized = FingerprintConfig {
       randomize_fingerprint_on_launch: Some(true),
       ..Default::default()
     };
     assert!(interactive(&randomized).is_err());
-    let explicit_on = WayfernConfig {
+    let explicit_on = FingerprintConfig {
       restore_session: Some(true),
       ..Default::default()
     };
@@ -4789,21 +4796,21 @@ mod tests {
   #[test]
   fn the_webrtc_mode_reads_the_new_field_then_the_legacy_flag() {
     assert_eq!(
-      WebRtcMode::from_config(&WayfernConfig::default()),
+      WebRtcMode::from_config(&FingerprintConfig::default()),
       WebRtcMode::Auto
     );
-    let legacy = WayfernConfig {
+    let legacy = FingerprintConfig {
       block_webrtc: Some(true),
       ..Default::default()
     };
     assert_eq!(WebRtcMode::from_config(&legacy), WebRtcMode::Block);
-    let both = WayfernConfig {
+    let both = FingerprintConfig {
       block_webrtc: Some(true),
       webrtc_mode: Some("tcp_only".into()),
       ..Default::default()
     };
     assert_eq!(WebRtcMode::from_config(&both), WebRtcMode::TcpOnly);
-    let unknown = WayfernConfig {
+    let unknown = FingerprintConfig {
       webrtc_mode: Some("sideways".into()),
       ..Default::default()
     };
@@ -4898,7 +4905,7 @@ mod tests {
     let file = root.path().join("frame.png");
     std::fs::write(&file, b"not really a png").unwrap();
     let path = file.to_string_lossy().to_string();
-    let config = |file: Option<&str>, crop: Option<&str>| WayfernConfig {
+    let config = |file: Option<&str>, crop: Option<&str>| FingerprintConfig {
       camera_file: file.map(str::to_string),
       camera_crop: crop.map(str::to_string),
       ..Default::default()
@@ -5304,7 +5311,7 @@ mod tests {
     let stored = obj(r#"{"platform": "MacIntel"}"#);
 
     // An explicit claim wins.
-    let config = WayfernConfig {
+    let config = FingerprintConfig {
       os: Some("android".to_string()),
       ..Default::default()
     };
@@ -5314,7 +5321,7 @@ mod tests {
     );
 
     // Profiles minted before `os` existed fall back to the stored device.
-    let config = WayfernConfig::default();
+    let config = FingerprintConfig::default();
     assert_eq!(
       WayfernManager::claimed_operating_system(&config, Some(&stored)),
       Some("macos")
@@ -5323,10 +5330,10 @@ mod tests {
     // Nothing to read, and an unrecognised claim, both stay unknown so the
     // launch is never refused on a guess.
     assert_eq!(
-      WayfernManager::claimed_operating_system(&WayfernConfig::default(), None),
+      WayfernManager::claimed_operating_system(&FingerprintConfig::default(), None),
       None
     );
-    let config = WayfernConfig {
+    let config = FingerprintConfig {
       os: Some("freebsd".to_string()),
       ..Default::default()
     };

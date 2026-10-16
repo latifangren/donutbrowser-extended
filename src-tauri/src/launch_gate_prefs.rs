@@ -85,7 +85,7 @@ fn update(mutate: impl FnOnce(&mut LaunchGatePrefs)) {
 pub fn fingerprint_hash(profile: &BrowserProfile) -> String {
   use sha2::{Digest, Sha256};
   let mut hasher = Sha256::new();
-  if let Some(config) = profile.wayfern_config.as_ref() {
+  if let Some(config) = profile.fingerprint_config.as_ref() {
     for field in [
       config.identity_id.as_deref(),
       config.identity_overrides.as_deref(),
@@ -184,7 +184,7 @@ mod tests {
       browser: "wayfern".into(),
       ..Default::default()
     };
-    profile.wayfern_config = Some(crate::wayfern_manager::WayfernConfig {
+    profile.fingerprint_config = Some(crate::wayfern_manager::FingerprintConfig {
       fingerprint: Some(fingerprint.to_string()),
       ..Default::default()
     });

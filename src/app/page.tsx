@@ -59,7 +59,7 @@ import { ThankYouDialog } from "@/components/thank-you-dialog";
 import { TipsDialog } from "@/components/tips-dialog";
 import { TotpToolDialog } from "@/components/totp-code";
 import { TrashPage } from "@/components/trash-page";
-import { WayfernConfigDialog } from "@/components/wayfern-config-dialog";
+import { FingerprintConfigDialog } from "@/components/wayfern-config-dialog";
 import { WayfernTermsDialog } from "@/components/wayfern-terms-dialog";
 import { WelcomeDialog } from "@/components/welcome-dialog";
 import { WindowResizeWarningDialog } from "@/components/window-resize-warning-dialog";
@@ -112,11 +112,12 @@ import {
 } from "@/lib/toast-utils";
 import type {
   BrowserProfile,
+  BrowserTypeString,
   ConsistencyResult,
   ExtensionGroup,
+  FingerprintConfig,
   PreLaunchChecks,
   SyncSettings,
-  WayfernConfig,
 } from "@/types";
 
 type GateRequest = {
@@ -150,8 +151,6 @@ function consistencyFromErrorParams(
     unverified: (params?.unverified ?? "").split(",").filter(Boolean),
   };
 }
-
-type BrowserTypeString = "wayfern" | "cloak";
 
 interface PendingUrl {
   id: string;
@@ -480,7 +479,7 @@ export default function Home() {
   const [importProfileDialogOpen, setImportProfileDialogOpen] = useState(false);
   const [proxyManagementDialogOpen, setProxyManagementDialogOpen] =
     useState(false);
-  const [wayfernConfigDialogOpen, setWayfernConfigDialogOpen] = useState(false);
+  const [fingerprintConfigDialogOpen, setFingerprintConfigDialogOpen] = useState(false);
   const [groupManagementDialogOpen, setGroupManagementDialogOpen] =
     useState(false);
   const [extensionManagementDialogOpen, setExtensionManagementDialogOpen] =
@@ -521,7 +520,7 @@ export default function Home() {
   const [selectedProfiles, setSelectedProfiles] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [pendingUrls, setPendingUrls] = useState<PendingUrl[]>([]);
-  const [currentProfileForWayfernConfig, setCurrentProfileForWayfernConfig] =
+  const [currentProfileForFingerprintConfig, setCurrentProfileForFingerprintConfig] =
     useState<BrowserProfile | null>(null);
   const [cloneProfile, setCloneProfile] = useState<BrowserProfile | null>(null);
   const [passwordDialogProfile, setPasswordDialogProfile] =
@@ -1138,19 +1137,19 @@ export default function Home() {
   }, [handleUrlOpen, t]);
 
   const handleConfigureWayfern = useCallback((profile: BrowserProfile) => {
-    setCurrentProfileForWayfernConfig(profile);
-    setWayfernConfigDialogOpen(true);
+    setCurrentProfileForFingerprintConfig(profile);
+    setFingerprintConfigDialogOpen(true);
   }, []);
 
-  const handleSaveWayfernConfig = useCallback(
-    async (profile: BrowserProfile, config: WayfernConfig) => {
+  const handleSaveFingerprintConfig = useCallback(
+    async (profile: BrowserProfile, config: FingerprintConfig) => {
       try {
         await invoke("update_wayfern_config", {
           profileId: profile.id,
           config,
         });
         // No need to manually reload - useProfileEvents will handle the update
-        setWayfernConfigDialogOpen(false);
+        setFingerprintConfigDialogOpen(false);
       } catch (err: unknown) {
         console.error("Failed to update wayfern config:", err);
         throw err;
@@ -1167,7 +1166,7 @@ export default function Home() {
       releaseType: string;
       proxyId?: string;
       vpnId?: string;
-      wayfernConfig?: WayfernConfig;
+      fingerprintConfig?: FingerprintConfig;
       groupId?: string;
       extensionGroupId?: string;
       ephemeral?: boolean;
@@ -1187,7 +1186,7 @@ export default function Home() {
             releaseType: profileData.releaseType,
             proxyId: profileData.proxyId,
             vpnId: profileData.vpnId,
-            wayfernConfig: profileData.wayfernConfig,
+            wayfernConfig: profileData.fingerprintConfig,
             groupId:
               profileData.groupId ??
               (selectedGroupId && selectedGroupId !== "__all__"
@@ -2784,16 +2783,16 @@ export default function Home() {
           }}
         />
 
-        <WayfernConfigDialog
-          isOpen={wayfernConfigDialogOpen}
+        <FingerprintConfigDialog
+          isOpen={fingerprintConfigDialogOpen}
           onClose={() => {
-            setWayfernConfigDialogOpen(false);
+            setFingerprintConfigDialogOpen(false);
           }}
-          profile={currentProfileForWayfernConfig}
-          onSave={handleSaveWayfernConfig}
+          profile={currentProfileForFingerprintConfig}
+          onSave={handleSaveFingerprintConfig}
           isRunning={
-            currentProfileForWayfernConfig
-              ? runningProfiles.has(currentProfileForWayfernConfig.id)
+            currentProfileForFingerprintConfig
+              ? runningProfiles.has(currentProfileForFingerprintConfig.id)
               : false
           }
           crossOsUnlocked={crossOsUnlocked}

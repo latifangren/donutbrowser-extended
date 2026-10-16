@@ -47,8 +47,26 @@ impl BrowserType {
   }
 }
 
+/// What a browser engine supports. Backends and the UI gate options on these
+/// instead of `browser == "wayfern"` string checks, so a new engine (e.g.
+/// Camoufox) only declares its own set.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EngineCapabilities {
+  /// Engine spoofs the OS natively (cross-OS fingerprints need no paywall).
+  pub cross_os_fingerprint: bool,
+  /// Engine honors per-profile custom launch args.
+  pub custom_launch_args: bool,
+  /// Profile creation counts against the hourly generation allowance
+  /// (Wayfern's upstream quota; local-seed engines don't need it).
+  pub generation_allowance: bool,
+  /// Full fingerprint editor UI (many knobs) vs the basic OS picker.
+  pub full_fingerprint_ui: bool,
+}
+
 #[allow(dead_code)]
 pub trait Browser: Send + Sync {
+  /// The engine's capability set. No default: every engine declares its own.
+  fn capabilities(&self) -> EngineCapabilities;
   fn get_executable_path(&self, install_dir: &Path) -> Result<PathBuf, Box<dyn std::error::Error>>;
   fn create_launch_args(
     &self,
@@ -70,9 +88,8 @@ pub trait Browser: Send + Sync {
 
 /// Fingerprint material for engines that spoof via launch flags.
 ///
-/// Neutral carrier: the runner populates it from whatever config the profile
-/// stores (today `WayfernConfig`; a neutral `FingerprintConfig` arrives with
-/// the profile migration). Engines read only the fields they understand.
+/// Neutral carrier: the runner populates it from the profile's
+/// `FingerprintConfig`. Engines read only the fields they understand.
 #[derive(Debug, Clone, Default)]
 pub struct FingerprintMaterial {
   /// Stable per-profile seed. Drives all derived values the engine randomizes.
@@ -419,6 +436,16 @@ impl WayfernBrowser {
 }
 
 impl Browser for WayfernBrowser {
+  fn capabilities(&self) -> EngineCapabilities {
+    EngineCapabilities {
+      // The Wayfern binary itself refuses cross-OS fingerprints, so the PRO
+      // gate stays even though this fork unlocks everything else.
+      cross_os_fingerprint: false,
+      custom_launch_args: true,
+      generation_allowance: true,
+      full_fingerprint_ui: true,
+    }
+  }
   fn get_executable_path(&self, install_dir: &Path) -> Result<PathBuf, Box<dyn std::error::Error>> {
     #[cfg(target_os = "macos")]
     return macos::get_wayfern_executable_path(install_dir);
@@ -594,6 +621,16 @@ impl CloakBrowser {
 }
 
 impl Browser for CloakBrowser {
+  fn capabilities(&self) -> EngineCapabilities {
+    EngineCapabilities {
+      // CloakBrowser spoofs the OS via `--fingerprint-platform`; no paywall.
+      cross_os_fingerprint: true,
+      custom_launch_args: true,
+      // Seeds are generated locally; no upstream quota to respect.
+      generation_allowance: false,
+      full_fingerprint_ui: false,
+    }
+  }
   fn get_executable_path(&self, install_dir: &Path) -> Result<PathBuf, Box<dyn std::error::Error>> {
     #[cfg(target_os = "macos")]
     return macos::get_cloak_executable_path(install_dir);
@@ -1183,6 +1220,21 @@ mod tests {
   }
 
   #[test]
+  fn test_engine_capabilities() {
+    let cloak = create_browser(BrowserType::Cloak).capabilities();
+    assert!(cloak.cross_os_fingerprint);
+    assert!(cloak.custom_launch_args);
+    assert!(!cloak.generation_allowance);
+    assert!(!cloak.full_fingerprint_ui);
+
+    let wayfern = create_browser(BrowserType::Wayfern).capabilities();
+    assert!(!wayfern.cross_os_fingerprint);
+    assert!(wayfern.custom_launch_args);
+    assert!(wayfern.generation_allowance);
+    assert!(wayfern.full_fingerprint_ui);
+  }
+
+  #[test]
   fn test_cloak_fingerprint_args_minimal_and_blocked() {
     // Empty material: only the webrtc default is emitted.
     let args = CloakBrowser::new().fingerprint_args(&FingerprintMaterial::default());
@@ -1299,12 +1351,12 @@ mod tests {
 
   #[test]
   fn test_wayfern_config_has_no_executable_path() {
-    // Verify WayfernConfig does not store executable_path
-    let config = crate::wayfern_manager::WayfernConfig::default();
+    // Verify FingerprintConfig does not store executable_path
+    let config = crate::wayfern_manager::FingerprintConfig::default();
     let json = serde_json::to_value(&config).unwrap();
     assert!(
       json.get("executable_path").is_none(),
-      "WayfernConfig should not have executable_path field"
+      "FingerprintConfig should not have executable_path field"
     );
   }
 
@@ -1323,7 +1375,7 @@ mod tests {
       process_id: None,
       last_launch: None,
       release_type: "stable".to_string(),
-      wayfern_config: None,
+      fingerprint_config: None,
       group_id: None,
       tags: Vec::new(),
       note: None,
