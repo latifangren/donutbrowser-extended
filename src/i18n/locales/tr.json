@@ -2674,7 +2674,9 @@
     "syncServerNoAccounts": "Bu sunucu Donut hesaplarını kabul etmiyor. Sunucuda SYNC_PUBLIC_URL değerini ayarlayın.",
     "syncServerAddressMismatch": "Sunucunun adresi {{address}}. Bu adresi girin.",
     "remoteNeedsDonutSync": "Uzak oturumlar ve Cookie Bot profilleri Donut cloud eşitlemesinden alır. Bu bilgisayar kendi sunucunuzla eşitleniyor.",
-    "accountSyncUnavailable": "Donut henüz kendi sunucunuzda oturum açamıyor. Daha sonra tekrar deneyin."
+    "accountSyncUnavailable": "Donut henüz kendi sunucunuzda oturum açamıyor. Daha sonra tekrar deneyin.",
+    "cloakVersionNotAvailable": "CloakBrowser version {{version}} has no free download. Only keyless releases can be downloaded.",
+    "cloakProKeyRequired": "CloakBrowser version {{version}} is only available as a key-gated Pro build, which needs a CloakBrowser license key. Pick a free release instead."
   },
   "rail": {
     "profiles": "Profiller",
