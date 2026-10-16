@@ -107,10 +107,10 @@ import { showErrorToast, showSuccessToast } from "@/lib/toast-utils";
 import { cn } from "@/lib/utils";
 import type {
   BrowserProfile,
+  FingerprintConfig,
   ProfileGroup,
   StoredProxy,
   VpnConfig,
-  FingerprintConfig,
 } from "@/types";
 
 interface ProfileInfoDialogProps {
@@ -2636,15 +2636,18 @@ function FingerprintSectionInline({
   onSaved: () => void;
   t: (key: string, options?: Record<string, unknown>) => string;
 }) {
-  const [fingerprintConfig, setFingerprintConfig] = React.useState<FingerprintConfig>(
-    () => profile.fingerprint_config ?? profile.wayfern_config ?? {},
-  );
+  const [fingerprintConfig, setFingerprintConfig] =
+    React.useState<FingerprintConfig>(
+      () => profile.fingerprint_config ?? profile.wayfern_config ?? {},
+    );
   const [isSaving, setIsSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [success, setSuccess] = React.useState<string | null>(null);
 
   React.useEffect(() => {
-    setFingerprintConfig(profile.fingerprint_config ?? profile.wayfern_config ?? {});
+    setFingerprintConfig(
+      profile.fingerprint_config ?? profile.wayfern_config ?? {},
+    );
     setError(null);
     setSuccess(null);
   }, [profile.fingerprint_config, profile.wayfern_config]);
@@ -2665,7 +2668,10 @@ function FingerprintSectionInline({
     );
   }
 
-  const onFingerprintChange = (key: keyof FingerprintConfig, value: unknown) => {
+  const onFingerprintChange = (
+    key: keyof FingerprintConfig,
+    value: unknown,
+  ) => {
     setFingerprintConfig((prev) => ({ ...prev, [key]: value }));
     setSuccess(null);
   };

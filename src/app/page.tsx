@@ -479,7 +479,8 @@ export default function Home() {
   const [importProfileDialogOpen, setImportProfileDialogOpen] = useState(false);
   const [proxyManagementDialogOpen, setProxyManagementDialogOpen] =
     useState(false);
-  const [fingerprintConfigDialogOpen, setFingerprintConfigDialogOpen] = useState(false);
+  const [fingerprintConfigDialogOpen, setFingerprintConfigDialogOpen] =
+    useState(false);
   const [groupManagementDialogOpen, setGroupManagementDialogOpen] =
     useState(false);
   const [extensionManagementDialogOpen, setExtensionManagementDialogOpen] =
@@ -520,8 +521,10 @@ export default function Home() {
   const [selectedProfiles, setSelectedProfiles] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [pendingUrls, setPendingUrls] = useState<PendingUrl[]>([]);
-  const [currentProfileForFingerprintConfig, setCurrentProfileForFingerprintConfig] =
-    useState<BrowserProfile | null>(null);
+  const [
+    currentProfileForFingerprintConfig,
+    setCurrentProfileForFingerprintConfig,
+  ] = useState<BrowserProfile | null>(null);
   const [cloneProfile, setCloneProfile] = useState<BrowserProfile | null>(null);
   const [passwordDialogProfile, setPasswordDialogProfile] =
     useState<BrowserProfile | null>(null);

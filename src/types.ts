@@ -1065,7 +1065,10 @@ export interface EngineCapabilities {
   fullFingerprintUi: boolean;
 }
 
-export const ENGINE_CAPABILITIES: Record<BrowserTypeString, EngineCapabilities> = {
+export const ENGINE_CAPABILITIES: Record<
+  BrowserTypeString,
+  EngineCapabilities
+> = {
   wayfern: {
     crossOsFingerprint: false,
     customLaunchArgs: true,

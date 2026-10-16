@@ -32,8 +32,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { useCloudAuth } from "@/hooks/use-cloud-auth";
 import { getEntitlements } from "@/lib/entitlements";
 import type {
-  PersonaField,
   FingerprintConfig,
+  PersonaField,
   WayfernFingerprintConfig,
   WayfernOS,
   WebRtcMode,

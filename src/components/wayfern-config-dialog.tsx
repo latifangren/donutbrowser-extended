@@ -95,7 +95,9 @@ export function FingerprintConfigDialog({
 
   const handleClose = () => {
     if (profile?.browser === "wayfern") {
-      setConfig(profile.fingerprint_config ?? profile.wayfern_config ?? { geoip: true });
+      setConfig(
+        profile.fingerprint_config ?? profile.wayfern_config ?? { geoip: true },
+      );
     }
     onClose();
   };

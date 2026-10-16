@@ -56,11 +56,11 @@ import { cn } from "@/lib/utils";
 import type {
   ArchiveScanResult,
   DetectedProfile,
+  FingerprintConfig,
   ImportProfileItem,
   ProfileImportBatchResult,
   ProfileImportProgress,
   ProfileImportReport,
-  FingerprintConfig,
 } from "@/types";
 import { RippleButton } from "./ui/ripple";
 
@@ -183,7 +183,9 @@ export function ImportProfileDialog({
   const [proxyAssignment, setProxyAssignment] = useState<string>("none");
   // "none" | a VPN config id (applied to every imported profile)
   const [vpnAssignment, setVpnAssignment] = useState<string>("none");
-  const [fingerprintConfig, setFingerprintConfig] = useState<FingerprintConfig>({});
+  const [fingerprintConfig, setFingerprintConfig] = useState<FingerprintConfig>(
+    {},
+  );
   // Fingerprint + advanced options collapse behind disclosures — the default
   // path is just names + proxy/VPN.
   const [showFingerprint, setShowFingerprint] = useState(false);
@@ -966,7 +968,10 @@ export function ImportProfileDialog({
                     <FingerprintConfigForm
                       config={fingerprintConfig}
                       onConfigChange={(key, value) => {
-                        setFingerprintConfig((prev) => ({ ...prev, [key]: value }));
+                        setFingerprintConfig((prev) => ({
+                          ...prev,
+                          [key]: value,
+                        }));
                       }}
                       isCreating={true}
                       crossOsUnlocked={crossOsUnlocked}

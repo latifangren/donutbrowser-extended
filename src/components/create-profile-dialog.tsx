@@ -90,9 +90,9 @@ import type {
   BrowserTypeString,
   BulkCreateResult,
   EngineCapabilities,
+  FingerprintConfig,
   ProfileTemplate,
   TemplateSettings,
-  FingerprintConfig,
   WayfernOS,
 } from "@/types";
 import { ENGINE_CAPABILITIES } from "@/types";
@@ -161,9 +161,8 @@ export function CreateProfileDialog({
   const reduceMotion = useReducedMotion() ?? false;
   const inputModality = useInputModality();
   const [profileName, setProfileName] = useState("");
-  const [selectedBrowser, setSelectedBrowser] = useState<BrowserTypeString>(
-    "wayfern",
-  );
+  const [selectedBrowser, setSelectedBrowser] =
+    useState<BrowserTypeString>("wayfern");
   const browserDisplayName =
     selectedBrowser === "cloak" ? "CloakBrowser" : "Wayfern";
   const capabilities: EngineCapabilities = ENGINE_CAPABILITIES[selectedBrowser];
@@ -177,8 +176,9 @@ export function CreateProfileDialog({
   const [dnsServerValid, setDnsServerValid] = useState(true);
   const [startPages, setStartPages] = useState("");
   const [launchHook, setLaunchHook] = useState("");
-  const [fingerprintConfig, setFingerprintConfig] =
-    useState<FingerprintConfig>(defaultFingerprintConfig);
+  const [fingerprintConfig, setFingerprintConfig] = useState<FingerprintConfig>(
+    defaultFingerprintConfig,
+  );
   const [isCreating, setIsCreating] = useState(false);
   const [ephemeral, setEphemeral] = useState(false);
   const templates = useProfileTemplates();
@@ -697,11 +697,11 @@ export function CreateProfileDialog({
                 className="h-9 text-base font-medium md:text-base"
               />
             </label>
-            <>
-              <span id={osLabelId} className="sr-only">
-                  {t("fingerprint.osLabel")}
-                </span>
-                <Popover open={osPopoverOpen} onOpenChange={setOsPopoverOpen}>
+
+            <span id={osLabelId} className="sr-only">
+              {t("fingerprint.osLabel")}
+            </span>
+            <Popover open={osPopoverOpen} onOpenChange={setOsPopoverOpen}>
               <PopoverTrigger asChild>
                 <button
                   id="profile-os"
@@ -771,9 +771,8 @@ export function CreateProfileDialog({
                     </CommandGroup>
                   </CommandList>
                 </Command>
-                </PopoverContent>
-              </Popover>
-            </>
+              </PopoverContent>
+            </Popover>
           </motion.div>
 
           <motion.div
