@@ -1353,19 +1353,14 @@ impl CloudAuthManager {
       .unwrap_or(false)
   }
 
+  /// Launch/drive profiles programmatically (local API + MCP automation).
+  ///
+  /// FORK POLICY (donutbrowser-extended): automation is a local capability,
+  /// not a plan feature. The entitlement check is intentionally bypassed so
+  /// the MCP server, the REST automation API and custom launch args work
+  /// without a paid plan. Cookie Bot stays gated: it runs on donut's cloud.
   pub async fn can_use_browser_automation(&self) -> bool {
-    #[cfg(feature = "e2e")]
-    if crate::e2e_automation_enabled()
-      && std::env::var_os("WAYFERN_TEST_TOKEN").is_some_and(|token| !token.is_empty())
-    {
-      return true;
-    }
-
-    self
-      .entitlements()
-      .await
-      .map(|e| e.browser_automation)
-      .unwrap_or(false)
+    true
   }
 
   /// Edit fingerprints / use a non-native OS fingerprint.

@@ -979,6 +979,7 @@ impl BrowserRunner {
       )
       .map_err(|e| err(format!("CloakBrowser launch args failed: {e}")))?;
     args.extend(browser.fingerprint_args(&fingerprint));
+    args.extend(Self::cloak_custom_launch_args(&profile));
 
     emit_launch_stage(&profile, "browser", None);
     let mut child = tokio::process::Command::new(&executable)
@@ -1055,6 +1056,18 @@ impl BrowserRunner {
       }
       tokio::time::sleep(Duration::from_millis(500)).await;
     }
+  }
+
+  /// Custom launch args stored on a cloak profile, appended after the
+  /// generated fingerprint flags. The creation-time allowlist already rejects
+  /// managed switches (`--fingerprint*`, `--proxy-*`, …), so no filtering is
+  /// needed here. Unlocked in this fork via `can_use_browser_automation`.
+  fn cloak_custom_launch_args(profile: &BrowserProfile) -> Vec<String> {
+    profile
+      .wayfern_config
+      .as_ref()
+      .map(|c| c.launch_args.clone())
+      .unwrap_or_default()
   }
 
   /// Build the neutral fingerprint material for a CloakBrowser profile from
@@ -2490,5 +2503,21 @@ mod tests {
       local_os_refusal(&profile_created_on("camoufox", &host)),
       None
     );
+  }
+
+  #[test]
+  fn cloak_custom_launch_args_passthrough() {
+    let profile = BrowserProfile {
+      wayfern_config: Some(crate::wayfern_manager::WayfernConfig {
+        launch_args: vec!["--disable-gpu".to_string(), "--mute-audio".to_string()],
+        ..Default::default()
+      }),
+      ..Default::default()
+    };
+    assert_eq!(
+      BrowserRunner::cloak_custom_launch_args(&profile),
+      vec!["--disable-gpu".to_string(), "--mute-audio".to_string()]
+    );
+    assert!(BrowserRunner::cloak_custom_launch_args(&BrowserProfile::default()).is_empty());
   }
 }
