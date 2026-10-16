@@ -78,7 +78,7 @@ mod app_auto_updater;
 pub mod app_dirs;
 mod auto_updater;
 mod automation_rate_limiter;
-mod browser;
+pub mod browser;
 mod browser_runner;
 mod browser_tabs;
 mod browser_version_manager;
