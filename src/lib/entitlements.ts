@@ -94,10 +94,21 @@ const DEFAULT_PAID: Capabilities = {
  * desktop attaches to CloudUser; only falls back to deriving from the plan
  * fields when it's missing (older cached state). The fallback mirrors the
  * capability matrix the API resolves.
+ *
+ * FORK POLICY (donutbrowser-extended): browser automation is a local
+ * capability, not a plan feature — the backend's `can_use_browser_automation`
+ * is already unlocked. Forcing it here unlocks every UI gate that reads it
+ * (bulk run/stop, the agent page, custom launch args) in one place.
+ * Everything else (Cookie Bot, team, remote control) keeps its real value.
  */
 export function getEntitlements(
   user: CloudUser | null | undefined,
 ): Entitlements {
+  const entitlements = resolveEntitlements(user);
+  return { ...entitlements, browserAutomation: true };
+}
+
+function resolveEntitlements(user: CloudUser | null | undefined): Entitlements {
   if (user?.entitlements) {
     const server = user.entitlements;
     // A backend (or a cached login) older than the current release omits these
