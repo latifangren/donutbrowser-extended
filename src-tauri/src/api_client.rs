@@ -409,6 +409,40 @@ impl ApiClient {
 
     Ok(())
   }
+
+  /// GET `url` and deserialize the JSON body. A thin shared helper so engine
+  /// version sources (GitHub releases, etc.) don't each build their own client.
+  pub async fn fetch_json<T>(
+    &self,
+    url: &str,
+  ) -> Result<T, Box<dyn std::error::Error + Send + Sync>>
+  where
+    T: serde::de::DeserializeOwned,
+  {
+    let response = self
+      .client
+      .get(url)
+      .header("User-Agent", "donutbrowser")
+      .header("Accept", "application/vnd.github+json")
+      .send()
+      .await
+      .map_err(|e| {
+        let detail: Box<dyn std::error::Error + Send + Sync> =
+          match crate::system_proxy::explain(&e) {
+            Some(explained) => explained.into(),
+            None => format!("Request failed url={url} err={e}").into(),
+          };
+        detail
+      })?;
+    let status = response.status();
+    if !status.is_success() {
+      return Err(format!("Request failed url={url} status={}", status.as_u16()).into());
+    }
+    response
+      .json::<T>()
+      .await
+      .map_err(|e| format!("Response parse failed url={url} err={e}").into())
+  }
 }
 
 static API_CLIENT: std::sync::LazyLock<ApiClient> = std::sync::LazyLock::new(ApiClient::new);

@@ -1,4 +1,7 @@
 use crate::api_client::{sort_versions, ApiClient, BrowserRelease};
+use crate::browser::{
+  cloak_asset_name, cloak_free_version_from_tag, GithubRelease, CLOAKBROWSER_RELEASES_API,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
@@ -62,13 +65,21 @@ impl BrowserVersionManager {
             | "windows-arm64"
         ))
       }
+      "cloak" => {
+        // Free CloakBrowser builds ship for these platform/arch pairs.
+        let platform_key = format!("{os}-{arch}");
+        Ok(matches!(
+          platform_key.as_str(),
+          "macos-arm64" | "macos-x64" | "linux-x64" | "linux-arm64" | "windows-x64"
+        ))
+      }
       _ => Err(format!("Unknown browser: {browser}").into()),
     }
   }
 
   /// Get list of browsers supported on the current platform
   pub fn get_supported_browsers(&self) -> Vec<String> {
-    let all_browsers = vec!["wayfern"];
+    let all_browsers = vec!["wayfern", "cloak"];
 
     all_browsers
       .into_iter()
@@ -114,7 +125,7 @@ impl BrowserVersionManager {
     &self,
     browser: &str,
   ) -> Result<BrowserReleaseTypes, Box<dyn std::error::Error + Send + Sync>> {
-    if browser != "wayfern" {
+    if browser != "wayfern" && browser != "cloak" {
       return Err(format!("Unsupported browser: {browser}").into());
     }
 
@@ -172,6 +183,7 @@ impl BrowserVersionManager {
     // Fetch fresh versions from API
     let fresh_versions = match browser {
       "wayfern" => self.fetch_wayfern_versions(true).await?,
+      "cloak" => self.fetch_cloak_versions().await?,
       _ => return Err(format!("Unsupported browser: {browser}").into()),
     };
 
@@ -235,6 +247,13 @@ impl BrowserVersionManager {
     // we'll fetch fresh detailed info and map it to our merged versions
     let detailed_info: Vec<BrowserVersionInfo> = match browser {
       "wayfern" => merged_versions
+        .into_iter()
+        .map(|version| BrowserVersionInfo {
+          version: version.clone(),
+          date: "".to_string(),
+        })
+        .collect(),
+      "cloak" => merged_versions
         .into_iter()
         .map(|version| BrowserVersionInfo {
           version: version.clone(),
@@ -322,6 +341,20 @@ impl BrowserVersionManager {
           is_archive,
         })
       }
+      "cloak" => {
+        // CloakBrowser free builds come from GitHub releases. The asset URL is
+        // resolved dynamically in downloader.rs (newest free release carrying
+        // this platform's archive); the filename is deterministic per platform.
+        let asset = cloak_asset_name().ok_or_else(|| {
+          let (os, arch) = Self::get_platform_info();
+          format!("CloakBrowser has no free build for {os}/{arch}")
+        })?;
+        Ok(DownloadInfo {
+          url: CLOAKBROWSER_RELEASES_API.to_string(),
+          filename: asset.to_string(),
+          is_archive: true,
+        })
+      }
       _ => Err(format!("Unsupported browser: {browser}").into()),
     }
   }
@@ -368,6 +401,40 @@ impl BrowserVersionManager {
       // No compatible download for current platform
       Ok(vec![])
     }
+  }
+
+  /// Free CloakBrowser versions with a downloadable archive for this platform,
+  /// newest first. Key-gated `-pro` releases are excluded (no binary attached).
+  async fn fetch_cloak_versions(&self) -> Result<Vec<String>, Box<dyn std::error::Error + Send + Sync>> {
+    let asset = match cloak_asset_name() {
+      Some(name) => name,
+      None => return Ok(vec![]),
+    };
+    let releases: Vec<GithubRelease> = self
+      .api_client
+      .fetch_json(CLOAKBROWSER_RELEASES_API)
+      .await?;
+    let mut versions: Vec<String> = releases
+      .iter()
+      .filter_map(|release| {
+        let version = cloak_free_version_from_tag(&release.tag_name)?;
+        release
+          .assets
+          .iter()
+          .any(|a| a.name == asset)
+          .then(|| version)
+      })
+      .collect();
+    versions.dedup();
+    Ok(versions)
+  }
+
+  /// CloakBrowser releases from the GitHub API (newest first), for resolving
+  /// a pinned version to its platform asset download URL.
+  pub async fn fetch_cloak_releases(
+    &self,
+  ) -> Result<Vec<GithubRelease>, Box<dyn std::error::Error + Send + Sync>> {
+    self.api_client.fetch_json(CLOAKBROWSER_RELEASES_API).await
   }
 }
 
