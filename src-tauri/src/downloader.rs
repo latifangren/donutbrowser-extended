@@ -210,6 +210,40 @@ impl Downloader {
 
         Ok(download_url)
       }
+      BrowserType::Cloak => {
+        // CloakBrowser free builds come from GitHub releases. Only keyless
+        // (non-`-pro`) releases are considered, so no license key is needed.
+        let asset_name = crate::browser::cloak_asset_name()
+          .ok_or_else(|| "CloakBrowser has no free build for this platform".to_string())?;
+        let releases = self
+          .version_service
+          .fetch_cloak_releases()
+          .await
+          .map_err(|e| format!("CloakBrowser release list unavailable: {e}"))?;
+
+        if crate::browser::cloak_version_is_pro_only(&releases, version) {
+          return Err(
+            serde_json::json!({
+              "code": "CLOAK_PRO_KEY_REQUIRED",
+              "params": { "version": version }
+            })
+            .to_string()
+            .into(),
+          );
+        }
+
+        let (_, download_url) =
+          crate::browser::select_cloak_release(&releases, Some(version), asset_name).ok_or_else(
+            || {
+              serde_json::json!({
+                "code": "CLOAK_VERSION_NOT_AVAILABLE",
+                "params": { "version": version }
+              })
+              .to_string()
+            },
+          )?;
+        Ok(download_url)
+      }
     }
   }
 
@@ -314,7 +348,8 @@ impl Downloader {
       .into()
     };
 
-    let sidecar_url = checksum_sidecar_url(download_url);
+    let sidecar_url =
+      cloak_sums_url(download_url).unwrap_or_else(|| checksum_sidecar_url(download_url));
     let response = match self
       .client
       .get(&sidecar_url)
@@ -1050,6 +1085,18 @@ fn url_path_end(url: &str) -> usize {
 fn checksum_sidecar_url(download_url: &str) -> String {
   let (base, suffix) = download_url.split_at(url_path_end(download_url));
   format!("{base}.sha256{suffix}")
+}
+
+/// CloakBrowser publishes one `SHA256SUMS` file per GitHub release instead of
+/// per-asset `<asset>.sha256` sidecars. Returns its URL when `download_url`
+/// points at a CloakBrowser release asset.
+fn cloak_sums_url(download_url: &str) -> Option<String> {
+  if !download_url.contains("CloakHQ/CloakBrowser/releases/download/") {
+    return None;
+  }
+  let (base, suffix) = download_url.split_at(url_path_end(download_url));
+  let dir_end = base.rfind('/')?;
+  Some(format!("{}/SHA256SUMS{suffix}", &base[..dir_end]))
 }
 
 /// Last path segment of `url`. This is the name a `sha256sum` sidecar records,

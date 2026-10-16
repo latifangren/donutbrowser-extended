@@ -70,6 +70,8 @@ export type BackendErrorCode =
   | "GROUP_ALREADY_EXISTS"
   | "NAME_CANNOT_BE_EMPTY"
   | "WAYFERN_VERSION_NOT_AVAILABLE"
+  | "CLOAK_VERSION_NOT_AVAILABLE"
+  | "CLOAK_PRO_KEY_REQUIRED"
   | "VPN_NOT_FOUND"
   | "EXTENSION_NOT_FOUND"
   | "EXTENSION_GROUP_NOT_FOUND"
@@ -530,6 +532,14 @@ export function translateBackendError(t: TFunction, err: unknown): string {
       return t("backendErrors.wayfernVersionNotAvailable", {
         requested: parsed.params?.requested ?? "",
         current: parsed.params?.current ?? "",
+      });
+    case "CLOAK_VERSION_NOT_AVAILABLE":
+      return t("backendErrors.cloakVersionNotAvailable", {
+        version: parsed.params?.version ?? "",
+      });
+    case "CLOAK_PRO_KEY_REQUIRED":
+      return t("backendErrors.cloakProKeyRequired", {
+        version: parsed.params?.version ?? "",
       });
     case "VPN_NOT_FOUND":
       return t("backendErrors.vpnNotFound");
