@@ -72,6 +72,8 @@ export type BackendErrorCode =
   | "WAYFERN_VERSION_NOT_AVAILABLE"
   | "CLOAK_VERSION_NOT_AVAILABLE"
   | "CLOAK_PRO_KEY_REQUIRED"
+  | "CLOAK_XRAY_UNSUPPORTED"
+  | "CLOAK_VPN_UNSUPPORTED"
   | "VPN_NOT_FOUND"
   | "EXTENSION_NOT_FOUND"
   | "EXTENSION_GROUP_NOT_FOUND"
@@ -541,6 +543,10 @@ export function translateBackendError(t: TFunction, err: unknown): string {
       return t("backendErrors.cloakProKeyRequired", {
         version: parsed.params?.version ?? "",
       });
+    case "CLOAK_XRAY_UNSUPPORTED":
+      return t("backendErrors.cloakXrayUnsupported");
+    case "CLOAK_VPN_UNSUPPORTED":
+      return t("backendErrors.cloakVpnUnsupported");
     case "VPN_NOT_FOUND":
       return t("backendErrors.vpnNotFound");
     case "EXTENSION_NOT_FOUND":

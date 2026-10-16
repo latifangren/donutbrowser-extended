@@ -475,6 +475,7 @@
       "badge": "常规浏览器"
     },
     "profileName": "配置文件名称",
+    "browserLabel": "Browser",
     "profileNamePlaceholder": "输入配置文件名称",
     "proxy": {
       "title": "代理 / VPN",
@@ -2676,7 +2677,9 @@
     "remoteNeedsDonutSync": "远程会话和 Cookie Bot 从 Donut 云同步获取配置文件。此计算机正在与你自己的服务器同步。",
     "accountSyncUnavailable": "Donut 暂时无法登录你自己的服务器。请稍后重试。",
     "cloakVersionNotAvailable": "CloakBrowser version {{version}} has no free download. Only keyless releases can be downloaded.",
-    "cloakProKeyRequired": "CloakBrowser version {{version}} is only available as a key-gated Pro build, which needs a CloakBrowser license key. Pick a free release instead."
+    "cloakProKeyRequired": "CloakBrowser version {{version}} is only available as a key-gated Pro build, which needs a CloakBrowser license key. Pick a free release instead.",
+    "cloakXrayUnsupported": "CloakBrowser profiles do not support Xray proxies yet. Use a plain HTTP or SOCKS proxy, or no proxy.",
+    "cloakVpnUnsupported": "CloakBrowser profiles do not support VPN yet."
   },
   "rail": {
     "profiles": "配置文件",

@@ -141,12 +141,7 @@ mod macos {
     // (Chromium.app, CloakBrowser.app, ...).
     let mut search_roots = vec![install_dir.to_path_buf()];
     if let Ok(entries) = std::fs::read_dir(install_dir) {
-      search_roots.extend(
-        entries
-          .flatten()
-          .map(|e| e.path())
-          .filter(|p| p.is_dir()),
-      );
+      search_roots.extend(entries.flatten().map(|e| e.path()).filter(|p| p.is_dir()));
     }
     for root in search_roots {
       let Ok(entries) = std::fs::read_dir(&root) else {
@@ -604,8 +599,15 @@ impl Browser for CloakBrowser {
     }
 
     if let Some(proxy) = proxy_settings {
+      // Chromium's --proxy-server takes a scheme; auth is negotiated
+      // interactively and is out of scope for a headless launch arg.
+      let scheme = match proxy.proxy_type.to_ascii_lowercase().as_str() {
+        "socks5" => "socks5",
+        "socks4" => "socks4",
+        _ => "http",
+      };
       args.push(format!(
-        "--proxy-server=http://{}:{}",
+        "--proxy-server={scheme}://{}:{}",
         proxy.host, proxy.port
       ));
     }
@@ -947,10 +949,7 @@ mod tests {
 
   #[test]
   fn test_cloak_browser_type_from_str() {
-    assert_eq!(
-      BrowserType::from_str("cloak").unwrap(),
-      BrowserType::Cloak
-    );
+    assert_eq!(BrowserType::from_str("cloak").unwrap(), BrowserType::Cloak);
     assert_eq!(BrowserType::Cloak.as_str(), "cloak");
     assert_eq!(BrowserType::Cloak.display_name(), "CloakBrowser");
     assert!(BrowserType::from_str("wayfern").is_ok());
@@ -963,7 +962,10 @@ mod tests {
       Some("146.0.7680.177.5".to_string())
     );
     // Key-gated -pro builds are never selected.
-    assert_eq!(cloak_free_version_from_tag("chromium-v154.0.8037.57.2-pro"), None);
+    assert_eq!(
+      cloak_free_version_from_tag("chromium-v154.0.8037.57.2-pro"),
+      None
+    );
     assert_eq!(cloak_free_version_from_tag("v146.0.7680.177.5"), None);
   }
 
@@ -1034,13 +1036,19 @@ mod tests {
         &["cloakbrowser-linux-x64.tar.gz"],
       ),
     ];
-    let (version, _) =
-      select_cloak_release(&releases, Some("145.0.7632.159.9"), "cloakbrowser-linux-x64.tar.gz")
-        .unwrap();
+    let (version, _) = select_cloak_release(
+      &releases,
+      Some("145.0.7632.159.9"),
+      "cloakbrowser-linux-x64.tar.gz",
+    )
+    .unwrap();
     assert_eq!(version, "145.0.7632.159.9");
-    assert!(
-      select_cloak_release(&releases, Some("999.0.0.0"), "cloakbrowser-linux-x64.tar.gz").is_none()
-    );
+    assert!(select_cloak_release(
+      &releases,
+      Some("999.0.0.0"),
+      "cloakbrowser-linux-x64.tar.gz"
+    )
+    .is_none());
   }
 
   #[test]
@@ -1051,6 +1059,30 @@ mod tests {
     assert!(args.contains(&"--user-data-dir=/tmp/p".to_string()));
     assert!(args.contains(&"--remote-debugging-port=9222".to_string()));
     assert!(!args.iter().any(|a| a.starts_with("--headless")));
+  }
+
+  #[test]
+  fn test_cloak_launch_args_proxy_scheme() {
+    let proxy = |t: &str| ProxySettings {
+      proxy_type: t.to_string(),
+      host: "127.0.0.1".to_string(),
+      port: 8080,
+      username: None,
+      password: None,
+      vless_uri: None,
+    };
+    let arg_for = |t: &str| {
+      CloakBrowser::new()
+        .create_launch_args("/tmp/p", Some(&proxy(t)), None, None, false)
+        .unwrap()
+        .into_iter()
+        .find(|a| a.starts_with("--proxy-server="))
+        .unwrap()
+    };
+    assert_eq!(arg_for("http"), "--proxy-server=http://127.0.0.1:8080");
+    assert_eq!(arg_for("socks5"), "--proxy-server=socks5://127.0.0.1:8080");
+    assert_eq!(arg_for("socks4"), "--proxy-server=socks4://127.0.0.1:8080");
+    assert_eq!(arg_for("SOCKS5"), "--proxy-server=socks5://127.0.0.1:8080");
   }
 
   #[cfg(target_os = "linux")]

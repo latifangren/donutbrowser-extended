@@ -475,6 +475,7 @@
       "badge": "通常ブラウザ"
     },
     "profileName": "プロファイル名",
+    "browserLabel": "Browser",
     "profileNamePlaceholder": "プロファイル名を入力",
     "proxy": {
       "title": "プロキシ / VPN",
@@ -2676,7 +2677,9 @@
     "remoteNeedsDonutSync": "リモートセッションと Cookie Bot は Donut クラウド同期からプロファイルを取得します。このコンピューターは独自のサーバーと同期しています。",
     "accountSyncUnavailable": "Donut はまだ独自のサーバーにサインインできません。後でもう一度お試しください。",
     "cloakVersionNotAvailable": "CloakBrowser version {{version}} has no free download. Only keyless releases can be downloaded.",
-    "cloakProKeyRequired": "CloakBrowser version {{version}} is only available as a key-gated Pro build, which needs a CloakBrowser license key. Pick a free release instead."
+    "cloakProKeyRequired": "CloakBrowser version {{version}} is only available as a key-gated Pro build, which needs a CloakBrowser license key. Pick a free release instead.",
+    "cloakXrayUnsupported": "CloakBrowser profiles do not support Xray proxies yet. Use a plain HTTP or SOCKS proxy, or no proxy.",
+    "cloakVpnUnsupported": "CloakBrowser profiles do not support VPN yet."
   },
   "rail": {
     "profiles": "プロファイル",

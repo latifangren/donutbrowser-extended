@@ -151,7 +151,7 @@ function consistencyFromErrorParams(
   };
 }
 
-type BrowserTypeString = "wayfern";
+type BrowserTypeString = "wayfern" | "cloak";
 
 interface PendingUrl {
   id: string;

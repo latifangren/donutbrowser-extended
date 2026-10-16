@@ -477,6 +477,7 @@
       "badge": "Обычный браузер"
     },
     "profileName": "Название профиля",
+    "browserLabel": "Browser",
     "profileNamePlaceholder": "Введите название профиля",
     "proxy": {
       "title": "Прокси / VPN",
@@ -2716,7 +2717,9 @@
     "remoteNeedsDonutSync": "Удалённые сеансы и Cookie Bot получают профили из синхронизации Donut cloud. Этот компьютер синхронизируется с вашим сервером.",
     "accountSyncUnavailable": "Donut пока не может войти на ваш сервер. Попробуйте позже.",
     "cloakVersionNotAvailable": "CloakBrowser version {{version}} has no free download. Only keyless releases can be downloaded.",
-    "cloakProKeyRequired": "CloakBrowser version {{version}} is only available as a key-gated Pro build, which needs a CloakBrowser license key. Pick a free release instead."
+    "cloakProKeyRequired": "CloakBrowser version {{version}} is only available as a key-gated Pro build, which needs a CloakBrowser license key. Pick a free release instead.",
+    "cloakXrayUnsupported": "CloakBrowser profiles do not support Xray proxies yet. Use a plain HTTP or SOCKS proxy, or no proxy.",
+    "cloakVpnUnsupported": "CloakBrowser profiles do not support VPN yet."
   },
   "rail": {
     "profiles": "Профили",

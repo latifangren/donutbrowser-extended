@@ -475,6 +475,7 @@
       "badge": "Normal Tarayıcı"
     },
     "profileName": "Profil Adı",
+    "browserLabel": "Browser",
     "profileNamePlaceholder": "Profil adını girin",
     "proxy": {
       "title": "Proxy / VPN",
@@ -2676,7 +2677,9 @@
     "remoteNeedsDonutSync": "Uzak oturumlar ve Cookie Bot profilleri Donut cloud eşitlemesinden alır. Bu bilgisayar kendi sunucunuzla eşitleniyor.",
     "accountSyncUnavailable": "Donut henüz kendi sunucunuzda oturum açamıyor. Daha sonra tekrar deneyin.",
     "cloakVersionNotAvailable": "CloakBrowser version {{version}} has no free download. Only keyless releases can be downloaded.",
-    "cloakProKeyRequired": "CloakBrowser version {{version}} is only available as a key-gated Pro build, which needs a CloakBrowser license key. Pick a free release instead."
+    "cloakProKeyRequired": "CloakBrowser version {{version}} is only available as a key-gated Pro build, which needs a CloakBrowser license key. Pick a free release instead.",
+    "cloakXrayUnsupported": "CloakBrowser profiles do not support Xray proxies yet. Use a plain HTTP or SOCKS proxy, or no proxy.",
+    "cloakVpnUnsupported": "CloakBrowser profiles do not support VPN yet."
   },
   "rail": {
     "profiles": "Profiller",

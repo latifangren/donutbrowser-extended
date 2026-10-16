@@ -16,6 +16,13 @@ static PROFILE_LAUNCH_LOCKS: LazyLock<
   tokio::sync::Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
 > = LazyLock::new(|| tokio::sync::Mutex::new(HashMap::new()));
 
+/// CDP port per running CloakBrowser profile. Wayfern tracks its own
+/// processes in WayfernManager; cloak launches are plain child processes,
+/// so the runner remembers the port here for "open URL in running browser".
+/// Entries are removed when the profile is killed.
+static CLOAK_CDP_PORTS: LazyLock<std::sync::Mutex<HashMap<String, u16>>> =
+  LazyLock::new(|| std::sync::Mutex::new(HashMap::new()));
+
 /// How long a remote navigation waits for the page to settle.
 ///
 /// A relayed round trip crosses two networks and the page load itself happens
@@ -856,40 +863,210 @@ impl BrowserRunner {
 
       // Save the updated profile
       self.save_process_info(&updated_profile)?;
-      let _ = crate::tag_manager::TAG_MANAGER.lock().map(|tm| {
-        let _ = tm.rebuild_from_profiles(&self.profile_manager.list_profiles().unwrap_or_default());
-      });
-
-      // Emit profiles-changed to trigger frontend to reload profiles from disk
-      if let Err(e) = events::emit_empty("profiles-changed") {
-        log::warn!("Event emit failed event=profiles-changed err=\"{e}\"");
-      }
-
-      // Emit profile update event to frontend
-      if let Err(e) = events::emit("profile-updated", &updated_profile) {
-        log::warn!("Event emit failed event=profile-updated err=\"{e}\"");
-      }
-
-      // Emit minimal running changed event to frontend
-      #[derive(Serialize)]
-      struct RunningChangedPayload {
-        id: String,
-        is_running: bool,
-      }
-
-      let payload = RunningChangedPayload {
-        id: updated_profile.id.to_string(),
-        is_running: updated_profile.process_id.is_some(),
-      };
-
-      if let Err(e) = events::emit("profile-running-changed", &payload) {
-        log::warn!("Event emit failed event=profile-running-changed err=\"{e}\"");
-      }
+      self.publish_launched_profile(&updated_profile);
 
       return Ok(updated_profile);
     }
 
+    if profile.browser == "cloak" {
+      return self
+        .launch_cloak_profile(
+          app_handle,
+          profile,
+          url,
+          remote_debugging_port,
+          headless,
+          kind,
+        )
+        .await;
+    }
+
     Err(format!("Unsupported browser type: {}", profile.browser).into())
+  }
+
+  /// Launch a CloakBrowser profile: a plain Chromium launch with no
+  /// donut-side fingerprint generation (M2). The free CloakBrowser build
+  /// patches fingerprints at the C++ level; per-profile flags arrive in M3.
+  /// CDP is still wired up so the launch is verified and automation can
+  /// attach later.
+  #[allow(clippy::too_many_arguments)]
+  async fn launch_cloak_profile(
+    &self,
+    _app_handle: tauri::AppHandle,
+    profile: &BrowserProfile,
+    url: Option<String>,
+    remote_debugging_port: Option<u16>,
+    headless: bool,
+    kind: crate::wayfern_manager::LaunchKind,
+  ) -> Result<BrowserProfile, Box<dyn std::error::Error + Send + Sync>> {
+    let launch_started = std::time::Instant::now();
+    let profile_id = profile.id.to_string();
+    let err = |msg: String| -> Box<dyn std::error::Error + Send + Sync> { msg.into() };
+
+    emit_launch_stage(profile, "executable", None);
+    let executable = self
+      .get_browser_executable_path(profile)
+      .map_err(|e| err(format!("CloakBrowser executable not found: {e}")))?;
+    crate::browser::create_browser(crate::browser::BrowserType::Cloak)
+      .prepare_executable(&executable)
+      .map_err(|e| err(format!("CloakBrowser executable not runnable: {e}")))?;
+
+    let profiles_dir = self.profile_manager.get_profiles_dir();
+    let profile_data_path =
+      crate::ephemeral_dirs::get_effective_profile_path(profile, &profiles_dir);
+    std::fs::create_dir_all(&profile_data_path)?;
+    let profile_path_str = profile_data_path.to_string_lossy().to_string();
+
+    // Direct HTTP/SOCKS proxies ride along as a launch arg. Xray and VPN
+    // need worker processes that only the Wayfern path starts today.
+    emit_launch_stage(profile, "network", None);
+    let proxy = self
+      .resolve_launch_proxy(profile)
+      .await
+      .map_err(|e| err(e))?;
+    if let Some(p) = proxy.as_ref() {
+      if crate::xray::is_xray_proxy_type(&p.proxy_type) {
+        return Err(
+          serde_json::json!({ "code": "CLOAK_XRAY_UNSUPPORTED" })
+            .to_string()
+            .into(),
+        );
+      }
+    }
+    if proxy.is_none() && profile.vpn_id.is_some() {
+      return Err(
+        serde_json::json!({ "code": "CLOAK_VPN_UNSUPPORTED" })
+          .to_string()
+          .into(),
+      );
+    }
+
+    let cdp_port = match remote_debugging_port {
+      Some(port) => port,
+      None => crate::wayfern_manager::WayfernManager::find_free_port()
+        .await
+        .map_err(|e| err(format!("No free CDP port: {e}")))?,
+    };
+
+    let browser = crate::browser::create_browser(crate::browser::BrowserType::Cloak);
+    let args = browser
+      .create_launch_args(
+        &profile_path_str,
+        proxy.as_ref(),
+        url,
+        Some(cdp_port),
+        headless,
+      )
+      .map_err(|e| err(format!("CloakBrowser launch args failed: {e}")))?;
+
+    emit_launch_stage(profile, "browser", None);
+    let mut child = tokio::process::Command::new(&executable)
+      .args(&args)
+      .kill_on_drop(false)
+      .spawn()
+      .map_err(|e| err(format!("Failed to start CloakBrowser: {e}")))?;
+    let pid = child
+      .id()
+      .ok_or_else(|| err("CloakBrowser started without a PID".into()))?;
+
+    if let Err(e) = Self::wait_for_cloak_cdp_ready(&mut child, cdp_port).await {
+      log::warn!("CloakBrowser launch failed profile={profile_id} pid={pid} err=\"{e}\"");
+      return Err(e);
+    }
+    CLOAK_CDP_PORTS
+      .lock()
+      .map(|mut ports| ports.insert(profile_id.clone(), cdp_port))
+      .ok();
+
+    log::info!(
+      "Browser launched profile={profile_id} browser=cloak pid={pid} cdp_port={cdp_port}{}{} elapsed_ms={}",
+      if headless { " headless=true" } else { "" },
+      if kind == crate::wayfern_manager::LaunchKind::Automation {
+        " kind=automation"
+      } else {
+        ""
+      },
+      launch_started.elapsed().as_millis(),
+    );
+
+    let mut updated_profile = profile.clone();
+    updated_profile.process_id = Some(pid);
+    updated_profile.last_launch = Some(
+      SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|e| err(format!("Clock error: {e}")))?
+        .as_secs(),
+    );
+    self.save_process_info(&updated_profile)?;
+    self.publish_launched_profile(&updated_profile);
+
+    Ok(updated_profile)
+  }
+
+  /// Poll the DevTools HTTP endpoint until it answers or the browser dies.
+  /// Kills a browser that never becomes ready so no orphan is left behind.
+  async fn wait_for_cloak_cdp_ready(
+    child: &mut tokio::process::Child,
+    port: u16,
+  ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let url = format!("http://127.0.0.1:{port}/json/version");
+    let client = reqwest::Client::builder()
+      .timeout(Duration::from_secs(3))
+      .build()?;
+    let deadline = std::time::Instant::now() + Duration::from_secs(60);
+    loop {
+      if let Ok(Some(status)) = child.try_wait() {
+        let _ = child.kill().await;
+        return Err(format!("CloakBrowser exited before CDP was ready: {status}").into());
+      }
+      if client
+        .get(&url)
+        .send()
+        .await
+        .map(|resp| resp.status().is_success())
+        .unwrap_or(false)
+      {
+        return Ok(());
+      }
+      if std::time::Instant::now() >= deadline {
+        let _ = child.kill().await;
+        return Err(format!("CloakBrowser CDP not ready after 60s on port {port}").into());
+      }
+      tokio::time::sleep(Duration::from_millis(500)).await;
+    }
+  }
+
+  /// Tag rebuild + frontend events shared by every engine's successful launch.
+  fn publish_launched_profile(&self, updated_profile: &BrowserProfile) {
+    let _ = crate::tag_manager::TAG_MANAGER.lock().map(|tm| {
+      let _ = tm.rebuild_from_profiles(&self.profile_manager.list_profiles().unwrap_or_default());
+    });
+
+    // Emit profiles-changed to trigger frontend to reload profiles from disk
+    if let Err(e) = events::emit_empty("profiles-changed") {
+      log::warn!("Event emit failed event=profiles-changed err=\"{e}\"");
+    }
+
+    // Emit profile update event to frontend
+    if let Err(e) = events::emit("profile-updated", updated_profile) {
+      log::warn!("Event emit failed event=profile-updated err=\"{e}\"");
+    }
+
+    // Emit minimal running changed event to frontend
+    #[derive(Serialize)]
+    struct RunningChangedPayload {
+      id: String,
+      is_running: bool,
+    }
+
+    let payload = RunningChangedPayload {
+      id: updated_profile.id.to_string(),
+      is_running: updated_profile.process_id.is_some(),
+    };
+
+    if let Err(e) = events::emit("profile-running-changed", &payload) {
+      log::warn!("Event emit failed event=profile-running-changed err=\"{e}\"");
+    }
   }
 
   pub async fn open_url_in_existing_browser(
@@ -924,6 +1101,40 @@ impl BrowserRunner {
           return Err("Wayfern browser is not running".into());
         }
       }
+    }
+
+    if profile.browser == "cloak" {
+      let port = CLOAK_CDP_PORTS
+        .lock()
+        .map(|ports| ports.get(&profile.id.to_string()).copied())
+        .unwrap_or_default();
+      let Some(port) = port else {
+        return Err("CloakBrowser is not running for this profile".into());
+      };
+      // DevTools protocol: PUT /json/new?<url> opens the URL in a new tab.
+      let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .build()?;
+      let resp = client
+        .put(format!(
+          "http://127.0.0.1:{port}/json/new?{}",
+          urlencoding::encode(url)
+        ))
+        .send()
+        .await
+        .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> {
+          format!("CloakBrowser CDP unreachable: {e}").into()
+        })?;
+      if !resp.status().is_success() {
+        return Err(
+          format!(
+            "CloakBrowser refused to open the URL (status {})",
+            resp.status().as_u16()
+          )
+          .into(),
+        );
+      }
+      return Ok(());
     }
 
     Err(format!("Unsupported browser type: {}", profile.browser).into())
@@ -1328,138 +1539,191 @@ impl BrowserRunner {
         );
       }
 
-      // Clear the process ID from the profile and save immediately so that
-      // subsequent calls to update_profile_version (which re-reads from disk)
-      // see the cleared process_id.
-      let mut updated_profile = profile.clone();
-      updated_profile.process_id = None;
-      self
-        .save_process_info(&updated_profile)
-        .map_err(|e| format!("Failed to update profile: {e}"))?;
-
-      // Check for pending updates and apply them
-      if let Ok(Some(pending_update)) = self
-        .auto_updater
-        .get_pending_update(&profile.browser, &profile.version)
-      {
-        match self.profile_manager.update_profile_version(
-          &app_handle,
-          &profile.id.to_string(),
-          &pending_update.new_version,
-        ) {
-          Ok(updated_profile_after_update) => {
-            log::info!(
-              "Pending browser update applied profile={} from={} to={}",
-              profile.id,
-              profile.version,
-              pending_update.new_version
-            );
-            updated_profile = updated_profile_after_update;
-
-            if let Err(e) = self
-              .auto_updater
-              .dismiss_update_notification(&pending_update.id)
-            {
-              log::warn!("Update notification dismiss failed err=\"{e}\"");
-            }
-          }
-          Err(e) => {
-            log::warn!(
-              "Pending browser update failed profile={} to={} err=\"{e}\"",
-              profile.id,
-              pending_update.new_version
-            );
-          }
-        }
-      }
-
-      // If no pending update was applied, check if a newer installed version exists
-      if updated_profile.version == profile.version {
-        if let Some(p) = self
-          .auto_updater
-          .update_profile_to_latest_installed(&app_handle, &updated_profile)
-        {
-          updated_profile = p;
-        }
-      }
       crate::wayfern_identity_storage::request_conversion_pass();
+      return self.finish_kill_browser_process(&app_handle, profile).await;
+    }
 
-      // Emit profile update event to frontend
-      if let Err(e) = events::emit("profile-updated", &updated_profile) {
-        log::warn!("Event emit failed event=profile-updated err=\"{e}\"");
-      }
+    if profile.browser == "cloak" {
+      if let Some(pid) = profile.process_id {
+        let profiles_dir = self.profile_manager.get_profiles_dir();
+        let profile_data_path =
+          crate::ephemeral_dirs::get_effective_profile_path(profile, &profiles_dir);
+        let profile_path_str = profile_data_path.to_string_lossy().to_string();
 
-      // Emit minimal running changed event
-      #[derive(Serialize)]
-      struct RunningChangedPayload {
-        id: String,
-        is_running: bool,
-      }
-      let payload = RunningChangedPayload {
-        id: updated_profile.id.to_string(),
-        is_running: false,
-      };
+        #[cfg(target_os = "macos")]
+        let kill_result =
+          crate::platform_browser::macos::kill_browser_process_impl(pid, Some(&profile_path_str))
+            .await;
+        #[cfg(target_os = "linux")]
+        let kill_result =
+          crate::platform_browser::linux::kill_browser_process_impl(pid, Some(&profile_path_str))
+            .await;
+        #[cfg(target_os = "windows")]
+        let kill_result = crate::platform_browser::windows::kill_browser_process_impl(pid).await;
+        #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+        let kill_result: Result<(), Box<dyn std::error::Error + Send + Sync>> =
+          Err("Unsupported platform".into());
 
-      if let Err(e) = events::emit("profile-running-changed", &payload) {
-        log::warn!("Event emit failed event=profile-running-changed err=\"{e}\"");
-      }
-
-      if profile.password_protected {
-        // Await the re-encryption so the queued sync (released later by
-        // `mark_profile_stopped` in `kill_browser`) sees fresh ciphertext on
-        // disk instead of the previous snapshot.
-        crate::profile::password::complete_after_quit_and_wait(profile).await;
-      } else if profile.ephemeral {
-        let id = profile.id.to_string();
-        crate::ephemeral_dirs::remove_ephemeral_dir(&id);
-        // The per-domain traffic tracker writes to the cache dir on real disk
-        // regardless of where the profile itself lives, so an "in memory only"
-        // session still left a full record of everywhere it connected.
-        crate::traffic_stats::delete_traffic_stats(&id);
-      } else if profile.clear_on_close {
-        // Awaited for the same reason as re-encryption above: a queued sync
-        // must see the cleared dir, not the pre-clear snapshot.
-        crate::profile::clear_on_close::clear_profile_browsing_data(profile).await;
-      }
-
-      // The browser held these open for the life of the process; nothing reads
-      // them once it has exited, and they are plaintext extension code sitting
-      // on real disk even for an ephemeral profile.
-      crate::extension_manager::ExtensionManager::cleanup_unpacked_for_profile(
-        &profile.id.to_string(),
-      );
-
-      // A temporary profile exists for one automation run, so the run ending
-      // is what ends it. Destroyed rather than trashed: nothing here is worth
-      // restoring, and a trash full of automation leftovers is its own bug.
-      if profile.temporary {
-        match self
-          .profile_manager
-          .delete_profile_permanently(&app_handle, &profile.id.to_string())
-        {
-          Ok(()) => log::info!("Deleted temporary profile profile={}", profile.id),
-          Err(e) => log::warn!(
-            "Temporary profile delete failed profile={} err=\"{e}\"",
+        if let Err(e) = kill_result {
+          log::warn!(
+            "CloakBrowser kill failed profile={} pid={pid} err=\"{e}\"",
             profile.id
-          ),
+          );
+        } else {
+          log::info!("CloakBrowser stopped profile={} pid={pid}", profile.id);
         }
+      } else {
+        log::debug!(
+          "CloakBrowser kill with no recorded PID profile={}",
+          profile.id
+        );
       }
-
-      // Consolidate browser versions after stopping a browser
-      let _ = self
-        .downloaded_browsers_registry
-        .consolidate_browser_versions(&app_handle);
-
-      return Ok(());
+      CLOAK_CDP_PORTS
+        .lock()
+        .map(|mut ports| ports.remove(&profile.id.to_string()))
+        .ok();
+      return self.finish_kill_browser_process(&app_handle, profile).await;
     }
 
     Err(
       format!(
-        "Unsupported browser '{}' for profile '{}' — only Wayfern is supported",
+        "Unsupported browser '{}' for profile '{}'",
         profile.browser, profile.name
       )
       .into(),
     )
+  }
+
+  /// Shared kill tail: clear the PID, apply pending updates, emit events,
+  /// and run close-time cleanup. Browser-agnostic; the caller stops the
+  /// actual process first.
+  async fn finish_kill_browser_process(
+    &self,
+    app_handle: &tauri::AppHandle,
+    profile: &BrowserProfile,
+  ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    // Clear the process ID from the profile and save immediately so that
+    // subsequent calls to update_profile_version (which re-reads from disk)
+    // see the cleared process_id.
+    let mut updated_profile = profile.clone();
+    updated_profile.process_id = None;
+    self
+      .save_process_info(&updated_profile)
+      .map_err(|e| format!("Failed to update profile: {e}"))?;
+
+    // Check for pending updates and apply them
+    if let Ok(Some(pending_update)) = self
+      .auto_updater
+      .get_pending_update(&profile.browser, &profile.version)
+    {
+      match self.profile_manager.update_profile_version(
+        app_handle,
+        &profile.id.to_string(),
+        &pending_update.new_version,
+      ) {
+        Ok(updated_profile_after_update) => {
+          log::info!(
+            "Pending browser update applied profile={} from={} to={}",
+            profile.id,
+            profile.version,
+            pending_update.new_version
+          );
+          updated_profile = updated_profile_after_update;
+
+          if let Err(e) = self
+            .auto_updater
+            .dismiss_update_notification(&pending_update.id)
+          {
+            log::warn!("Update notification dismiss failed err=\"{e}\"");
+          }
+        }
+        Err(e) => {
+          log::warn!(
+            "Pending browser update failed profile={} to={} err=\"{e}\"",
+            profile.id,
+            pending_update.new_version
+          );
+        }
+      }
+    }
+
+    // If no pending update was applied, check if a newer installed version exists
+    if updated_profile.version == profile.version {
+      if let Some(p) = self
+        .auto_updater
+        .update_profile_to_latest_installed(app_handle, &updated_profile)
+      {
+        updated_profile = p;
+      }
+    }
+
+    // Emit profile update event to frontend
+    if let Err(e) = events::emit("profile-updated", &updated_profile) {
+      log::warn!("Event emit failed event=profile-updated err=\"{e}\"");
+    }
+
+    // Emit minimal running changed event
+    #[derive(Serialize)]
+    struct RunningChangedPayload {
+      id: String,
+      is_running: bool,
+    }
+    let payload = RunningChangedPayload {
+      id: updated_profile.id.to_string(),
+      is_running: false,
+    };
+
+    if let Err(e) = events::emit("profile-running-changed", &payload) {
+      log::warn!("Event emit failed event=profile-running-changed err=\"{e}\"");
+    }
+
+    if profile.password_protected {
+      // Await the re-encryption so the queued sync (released later by
+      // `mark_profile_stopped` in `kill_browser`) sees fresh ciphertext on
+      // disk instead of the previous snapshot.
+      crate::profile::password::complete_after_quit_and_wait(profile).await;
+    } else if profile.ephemeral {
+      let id = profile.id.to_string();
+      crate::ephemeral_dirs::remove_ephemeral_dir(&id);
+      // The per-domain traffic tracker writes to the cache dir on real disk
+      // regardless of where the profile itself lives, so an "in memory only"
+      // session still left a full record of everywhere it connected.
+      crate::traffic_stats::delete_traffic_stats(&id);
+    } else if profile.clear_on_close {
+      // Awaited for the same reason as re-encryption above: a queued sync
+      // must see the cleared dir, not the pre-clear snapshot.
+      crate::profile::clear_on_close::clear_profile_browsing_data(profile).await;
+    }
+
+    // The browser held these open for the life of the process; nothing reads
+    // them once it has exited, and they are plaintext extension code sitting
+    // on real disk even for an ephemeral profile.
+    crate::extension_manager::ExtensionManager::cleanup_unpacked_for_profile(
+      &profile.id.to_string(),
+    );
+
+    // A temporary profile exists for one automation run, so the run ending
+    // is what ends it. Destroyed rather than trashed: nothing here is worth
+    // restoring, and a trash full of automation leftovers is its own bug.
+    if profile.temporary {
+      match self
+        .profile_manager
+        .delete_profile_permanently(app_handle, &profile.id.to_string())
+      {
+        Ok(()) => log::info!("Deleted temporary profile profile={}", profile.id),
+        Err(e) => log::warn!(
+          "Temporary profile delete failed profile={} err=\"{e}\"",
+          profile.id
+        ),
+      }
+    }
+
+    // Consolidate browser versions after stopping a browser
+    let _ = self
+      .downloaded_browsers_registry
+      .consolidate_browser_versions(app_handle);
+
+    Ok(())
   }
 
   pub async fn open_url_with_profile(

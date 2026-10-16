@@ -475,6 +475,7 @@
       "badge": "일반 브라우저"
     },
     "profileName": "프로필 이름",
+    "browserLabel": "Browser",
     "profileNamePlaceholder": "프로필 이름 입력",
     "proxy": {
       "title": "프록시 / VPN",
@@ -2676,7 +2677,9 @@
     "remoteNeedsDonutSync": "원격 세션과 Cookie Bot은 Donut 클라우드 동기화에서 프로필을 가져옵니다. 이 컴퓨터는 자체 서버와 동기화합니다.",
     "accountSyncUnavailable": "Donut이 아직 자체 서버에 로그인할 수 없습니다. 나중에 다시 시도하세요.",
     "cloakVersionNotAvailable": "CloakBrowser version {{version}} has no free download. Only keyless releases can be downloaded.",
-    "cloakProKeyRequired": "CloakBrowser version {{version}} is only available as a key-gated Pro build, which needs a CloakBrowser license key. Pick a free release instead."
+    "cloakProKeyRequired": "CloakBrowser version {{version}} is only available as a key-gated Pro build, which needs a CloakBrowser license key. Pick a free release instead.",
+    "cloakXrayUnsupported": "CloakBrowser profiles do not support Xray proxies yet. Use a plain HTTP or SOCKS proxy, or no proxy.",
+    "cloakVpnUnsupported": "CloakBrowser profiles do not support VPN yet."
   },
   "rail": {
     "profiles": "프로필",

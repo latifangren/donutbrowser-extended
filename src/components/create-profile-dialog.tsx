@@ -121,7 +121,7 @@ interface CreateProfileDialogProps {
   onClose: () => void;
   onCreateProfile: (profileData: {
     name: string;
-    browserStr: "wayfern";
+    browserStr: "wayfern" | "cloak";
     version: string;
     releaseType: string;
     proxyId?: string;
@@ -158,6 +158,11 @@ export function CreateProfileDialog({
   const reduceMotion = useReducedMotion() ?? false;
   const inputModality = useInputModality();
   const [profileName, setProfileName] = useState("");
+  const [selectedBrowser, setSelectedBrowser] = useState<"wayfern" | "cloak">(
+    "wayfern",
+  );
+  const browserDisplayName =
+    selectedBrowser === "cloak" ? "CloakBrowser" : "Wayfern";
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [selectedProxyId, setSelectedProxyId] = useState<string>();
   const [proxyPopoverOpen, setProxyPopoverOpen] = useState(false);
@@ -252,36 +257,37 @@ export function CreateProfileDialog({
 
   const loadReleaseTypes = useCallback(async () => {
     const request = ++versionRequestRef.current;
+    const browser = selectedBrowser;
     setIsLoadingReleaseTypes(true);
     setReleaseTypesError(false);
     try {
       const releases = await invoke<BrowserReleaseTypes>(
         "get_browser_release_types",
         {
-          browserStr: "wayfern",
+          browserStr: browser,
         },
       );
-      await loadDownloadedVersions("wayfern");
+      await loadDownloadedVersions(browser);
       if (versionRequestRef.current === request) {
         setReleaseTypes(releases.stable ? { stable: releases.stable } : {});
       }
     } catch (error) {
-      console.error("Failed to load Wayfern release types:", error);
+      console.error("Failed to load release types:", error);
       try {
-        const downloaded = await loadDownloadedVersions("wayfern");
+        const downloaded = await loadDownloadedVersions(browser);
         if (versionRequestRef.current === request) {
           setReleaseTypes(downloaded.length ? { stable: downloaded[0] } : {});
           setReleaseTypesError(downloaded.length === 0);
         }
       } catch (error) {
-        console.error("Failed to load downloaded Wayfern versions:", error);
+        console.error("Failed to load downloaded browser versions:", error);
         if (versionRequestRef.current === request) setReleaseTypesError(true);
       }
     } finally {
       if (versionRequestRef.current === request)
         setIsLoadingReleaseTypes(false);
     }
-  }, [loadDownloadedVersions]);
+  }, [loadDownloadedVersions, selectedBrowser]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -303,19 +309,19 @@ export function CreateProfileDialog({
     };
   }, [isOpen, loadReleaseTypes]);
 
-  const downloadedVersions = downloadedVersionsMap.wayfern ?? [];
+  const downloadedVersions = downloadedVersionsMap[selectedBrowser] ?? [];
   const latestVersion = releaseTypes.stable;
   const creatableVersion =
     latestVersion && downloadedVersions.includes(latestVersion)
       ? latestVersion
       : downloadedVersions[0];
-  const downloading = isBrowserDownloading("wayfern");
+  const downloading = isBrowserDownloading(selectedBrowser);
   const isCreateDisabled =
     !profileName.trim() ||
     !creatableVersion ||
     downloading ||
     isCreating ||
-    hourlyCapReached ||
+    (selectedBrowser === "wayfern" && hourlyCapReached) ||
     !dnsServerValid;
   const selectedVpn = selectedProxyId?.startsWith("vpn-")
     ? vpnConfigs.find((vpn) => vpn.id === selectedProxyId.slice(4))
@@ -536,12 +542,12 @@ export function CreateProfileDialog({
     try {
       await onCreateProfile({
         name: profileName.trim(),
-        browserStr: "wayfern",
+        browserStr: selectedBrowser,
         version: creatableVersion,
         releaseType: "stable",
         proxyId: isVpnSelection ? undefined : selectedProxyId,
         vpnId: isVpnSelection ? selectedProxyId?.slice(4) : undefined,
-        wayfernConfig,
+        wayfernConfig: selectedBrowser === "wayfern" ? wayfernConfig : undefined,
         groupId:
           selectedGroupId && selectedGroupId !== "__all__"
             ? selectedGroupId
@@ -566,9 +572,9 @@ export function CreateProfileDialog({
   const handleDownload = async () => {
     if (!latestVersion) return;
     try {
-      await downloadBrowser("wayfern", latestVersion);
+      await downloadBrowser(selectedBrowser, latestVersion);
     } catch (error) {
-      console.error("Failed to download Wayfern:", error);
+      console.error("Failed to download browser:", error);
     }
   };
 
@@ -687,10 +693,12 @@ export function CreateProfileDialog({
                 className="h-9 text-base font-medium md:text-base"
               />
             </label>
-            <span id={osLabelId} className="sr-only">
-              {t("fingerprint.osLabel")}
-            </span>
-            <Popover open={osPopoverOpen} onOpenChange={setOsPopoverOpen}>
+            {selectedBrowser === "wayfern" && (
+              <>
+                <span id={osLabelId} className="sr-only">
+                  {t("fingerprint.osLabel")}
+                </span>
+                <Popover open={osPopoverOpen} onOpenChange={setOsPopoverOpen}>
               <PopoverTrigger asChild>
                 <button
                   id="profile-os"
@@ -757,8 +765,48 @@ export function CreateProfileDialog({
                     </CommandGroup>
                   </CommandList>
                 </Command>
-              </PopoverContent>
-            </Popover>
+                </PopoverContent>
+                </Popover>
+              </>
+            )}
+          </motion.div>
+
+          <motion.div
+            className="flex items-center gap-1.5 px-1"
+            {...rise(0.02)}
+          >
+            <span className="text-xs font-medium text-muted-foreground">
+              {t("createProfile.browserLabel")}
+            </span>
+            <div
+              role="radiogroup"
+              aria-label={t("createProfile.browserLabel")}
+              className="flex rounded-lg bg-foreground/5 p-0.5"
+            >
+              {(
+                [
+                  { value: "wayfern", label: "Wayfern" },
+                  { value: "cloak", label: "CloakBrowser" },
+                ] as const
+              ).map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  role="radio"
+                  aria-checked={selectedBrowser === option.value}
+                  onClick={() => setSelectedBrowser(option.value)}
+                  disabled={isCreating}
+                  className={cn(
+                    "rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
+                    selectedBrowser === option.value
+                      ? "bg-background text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
           </motion.div>
 
           {many && (
@@ -1017,7 +1065,7 @@ export function CreateProfileDialog({
             </motion.div>
           )}
 
-          {crossOs && (
+          {selectedBrowser === "wayfern" && crossOs && (
             <motion.p
               role="status"
               className={cn(STATUS_CLASS, "items-start")}
@@ -1038,7 +1086,7 @@ export function CreateProfileDialog({
                 aria-hidden="true"
               />
               {t("createProfile.version.downloading", {
-                browser: "Wayfern",
+                browser: browserDisplayName,
                 version: latestVersion,
               })}
             </motion.p>
@@ -1077,7 +1125,7 @@ export function CreateProfileDialog({
               >
                 <p className="flex-1">
                   {t("createProfile.version.needsDownload", {
-                    browser: "Wayfern",
+                    browser: browserDisplayName,
                     version: latestVersion,
                   })}
                 </p>
@@ -1095,7 +1143,7 @@ export function CreateProfileDialog({
                 className={cn(STATUS_CLASS, "text-warning-text")}
               >
                 {t("createProfile.platformUnavailable", {
-                  browser: "Wayfern",
+                  browser: browserDisplayName,
                 })}
               </p>
             ))
@@ -1264,7 +1312,7 @@ export function CreateProfileDialog({
                     {creatableVersion && (
                       <p className="text-xs text-muted-foreground">
                         {t("createProfile.version.available", {
-                          browser: "Wayfern",
+                          browser: browserDisplayName,
                           version: creatableVersion,
                         })}
                       </p>
@@ -1276,7 +1324,7 @@ export function CreateProfileDialog({
                         <div className={cn(STATUS_CLASS, "py-1.5 pr-1.5")}>
                           <p className="flex-1">
                             {t("createProfile.version.upgradeAvailable", {
-                              browser: "Wayfern",
+                              browser: browserDisplayName,
                               version: latestVersion,
                             })}
                           </p>
@@ -1291,19 +1339,21 @@ export function CreateProfileDialog({
                           </Button>
                         </div>
                       )}
-                    <WayfernConfigForm
-                      className="[&_[data-slot=select-trigger]]:w-full"
-                      config={wayfernConfig}
-                      onConfigChange={updateWayfernConfig}
-                      isCreating
-                      forceAdvanced
-                      readOnly={isCreating}
-                      crossOsUnlocked={crossOsUnlocked}
-                      limitedMode={!crossOsUnlocked}
-                      osPicker={false}
-                      profileVersion={creatableVersion}
-                      profileBrowser="wayfern"
-                    />
+                    {selectedBrowser === "wayfern" && (
+                      <WayfernConfigForm
+                        className="[&_[data-slot=select-trigger]]:w-full"
+                        config={wayfernConfig}
+                        onConfigChange={updateWayfernConfig}
+                        isCreating
+                        forceAdvanced
+                        readOnly={isCreating}
+                        crossOsUnlocked={crossOsUnlocked}
+                        limitedMode={!crossOsUnlocked}
+                        osPicker={false}
+                        profileVersion={creatableVersion}
+                        profileBrowser="wayfern"
+                      />
+                    )}
                   </div>
                 </div>
               </SoftFields>

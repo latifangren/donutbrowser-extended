@@ -405,7 +405,9 @@ impl BrowserVersionManager {
 
   /// Free CloakBrowser versions with a downloadable archive for this platform,
   /// newest first. Key-gated `-pro` releases are excluded (no binary attached).
-  async fn fetch_cloak_versions(&self) -> Result<Vec<String>, Box<dyn std::error::Error + Send + Sync>> {
+  async fn fetch_cloak_versions(
+    &self,
+  ) -> Result<Vec<String>, Box<dyn std::error::Error + Send + Sync>> {
     let asset = match cloak_asset_name() {
       Some(name) => name,
       None => return Ok(vec![]),
