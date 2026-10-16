@@ -430,6 +430,7 @@
       "copyCookies": "쿠키 복사",
       "runSelected": "선택 실행",
       "stopSelected": "선택 중지",
+      "stopRunningFirst": "Stop the running profiles first",
       "proRequired": "대량 실행/중지하려면 Pro 플랜이 필요합니다",
       "distributeProxies": "프록시 배분"
     },

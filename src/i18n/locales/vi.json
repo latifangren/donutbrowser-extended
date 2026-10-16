@@ -430,6 +430,7 @@
       "copyCookies": "Sao chép Cookie",
       "runSelected": "Chạy mục đã chọn",
       "stopSelected": "Dừng mục đã chọn",
+      "stopRunningFirst": "Stop the running profiles first",
       "proRequired": "Cần gói Pro để chạy/dừng hàng loạt",
       "distributeProxies": "Phân bổ proxy"
     },

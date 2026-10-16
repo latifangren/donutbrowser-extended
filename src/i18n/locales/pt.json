@@ -431,6 +431,7 @@
       "copyCookies": "Copiar cookies",
       "runSelected": "Executar selecionados",
       "stopSelected": "Parar selecionados",
+      "stopRunningFirst": "Stop the running profiles first",
       "proRequired": "Plano Pro necessário para execução/parada em massa",
       "distributeProxies": "Distribuir proxies"
     },

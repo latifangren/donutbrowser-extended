@@ -430,6 +430,7 @@
       "copyCookies": "Copy Cookies",
       "runSelected": "Run selected",
       "stopSelected": "Stop selected",
+      "stopRunningFirst": "Stop the running profiles first",
       "proRequired": "Pro plan required for bulk run/stop",
       "distributeProxies": "Distribute Proxies"
     },

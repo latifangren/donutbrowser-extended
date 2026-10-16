@@ -430,6 +430,7 @@
       "copyCookies": "Cookies kopieren",
       "runSelected": "Ausgewählte starten",
       "stopSelected": "Ausgewählte stoppen",
+      "stopRunningFirst": "Stop the running profiles first",
       "proRequired": "Pro-Tarif für Massenstart/-stopp erforderlich",
       "distributeProxies": "Proxys verteilen"
     },

@@ -430,6 +430,7 @@
       "copyCookies": "Cookieをコピー",
       "runSelected": "選択を実行",
       "stopSelected": "選択を停止",
+      "stopRunningFirst": "Stop the running profiles first",
       "proRequired": "一括実行・停止には Pro プランが必要です",
       "distributeProxies": "プロキシを配分"
     },

@@ -432,6 +432,7 @@
       "copyCookies": "Копировать cookies",
       "runSelected": "Запустить выбранные",
       "stopSelected": "Остановить выбранные",
+      "stopRunningFirst": "Stop the running profiles first",
       "proRequired": "Для массового запуска/остановки требуется план Pro",
       "distributeProxies": "Распределить прокси"
     },

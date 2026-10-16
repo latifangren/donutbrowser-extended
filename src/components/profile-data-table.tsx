@@ -3640,19 +3640,26 @@ export function ProfilesDataTable({
     columnResizeMode: "onChange",
     onRowSelectionChange: handleRowSelectionChange,
     onColumnVisibilityChange: view.setVisibility,
-    enableRowSelection: (row) => {
-      const profile = row.original;
-      const isRunning =
-        browserState.isClient && runningProfiles.has(profile.id);
-      const isLaunching = launchingProfiles.has(profile.id);
-      const isStopping = stoppingProfiles.has(profile.id);
-      return !isRunning && !isLaunching && !isStopping;
-    },
+    // FORK POLICY (donutbrowser-extended): every row is selectable, including
+    // running ones — bulk stop needs to select running profiles. The edit and
+    // assign actions gate themselves (see hasRunningSelected in the action
+    // bar), and run/stop filter their targets, so nothing unsafe runs.
+    enableRowSelection: () => true,
     getSortedRowModel: getSortedRowModel(),
     getCoreRowModel: getCoreRowModel(),
     getRowId: (row) => row.id,
     meta: tableMeta,
   });
+
+  // Bulk edit/assign actions must not touch running profiles (upstream
+  // protection, previously enforced by blocking selection). Run/Stop filter
+  // their own targets, so they stay enabled.
+  const hasRunningSelected = table
+    .getSelectedRowModel()
+    .rows.some((row) => runningProfiles.has(row.id));
+  const runningSelectedTooltip = hasRunningSelected
+    ? t("profiles.actionBar.stopRunningFirst")
+    : undefined;
 
   const scrollParentRef = React.useRef<HTMLDivElement | null>(null);
   const workspaceRef = React.useRef<HTMLDivElement | null>(null);
@@ -4195,23 +4202,30 @@ export function ProfilesDataTable({
           </span>
         )}
         <DataTableActionBarAction
-          tooltip={t("bulkEdit.action")}
+          tooltip={runningSelectedTooltip ?? t("bulkEdit.action")}
           onClick={() => setBulkEditOpen(true)}
+          disabled={hasRunningSelected}
         >
           <LuSlidersHorizontal />
         </DataTableActionBarAction>
         {onBulkGroupAssignment && (
           <DataTableActionBarAction
-            tooltip={t("profiles.actionBar.assignToGroup")}
+            tooltip={
+              runningSelectedTooltip ?? t("profiles.actionBar.assignToGroup")
+            }
             onClick={onBulkGroupAssignment}
+            disabled={hasRunningSelected}
           >
             <LuUsers />
           </DataTableActionBarAction>
         )}
         {onBulkProxyAssignment && (
           <DataTableActionBarAction
-            tooltip={t("profiles.actionBar.assignProxy")}
+            tooltip={
+              runningSelectedTooltip ?? t("profiles.actionBar.assignProxy")
+            }
             onClick={onBulkProxyAssignment}
+            disabled={hasRunningSelected}
           >
             <FiWifi />
           </DataTableActionBarAction>
@@ -4225,19 +4239,31 @@ export function ProfilesDataTable({
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             {onBulkProxyDistribution && (
-              <DropdownMenuItem onSelect={onBulkProxyDistribution}>
+              <DropdownMenuItem
+                disabled={hasRunningSelected}
+                title={runningSelectedTooltip}
+                onSelect={onBulkProxyDistribution}
+              >
                 <LuShuffle />
                 {t("profiles.actionBar.distributeProxies")}
               </DropdownMenuItem>
             )}
             {onBulkExtensionGroupAssignment && (
-              <DropdownMenuItem onSelect={onBulkExtensionGroupAssignment}>
+              <DropdownMenuItem
+                disabled={hasRunningSelected}
+                title={runningSelectedTooltip}
+                onSelect={onBulkExtensionGroupAssignment}
+              >
                 <LuPuzzle />
                 {t("profiles.actionBar.assignExtensionGroup")}
               </DropdownMenuItem>
             )}
             {onBulkCopyCookies && (
-              <DropdownMenuItem onSelect={onBulkCopyCookies}>
+              <DropdownMenuItem
+                disabled={hasRunningSelected}
+                title={runningSelectedTooltip}
+                onSelect={onBulkCopyCookies}
+              >
                 <LuCookie />
                 {t("profiles.actionBar.copyCookies")}
               </DropdownMenuItem>
@@ -4257,6 +4283,8 @@ export function ProfilesDataTable({
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                   className="text-destructive focus:text-destructive"
+                  disabled={hasRunningSelected}
+                  title={runningSelectedTooltip}
                   onSelect={onBulkDelete}
                 >
                   <LuTrash2 />

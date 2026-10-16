@@ -430,6 +430,7 @@
       "copyCookies": "复制 Cookie",
       "runSelected": "运行所选",
       "stopSelected": "停止所选",
+      "stopRunningFirst": "Stop the running profiles first",
       "proRequired": "批量运行/停止需要 Pro 套餐",
       "distributeProxies": "分配代理"
     },

@@ -430,6 +430,7 @@
       "copyCookies": "Çerezleri Kopyala",
       "runSelected": "Seçilenleri çalıştır",
       "stopSelected": "Seçilenleri durdur",
+      "stopRunningFirst": "Stop the running profiles first",
       "proRequired": "Toplu çalıştırma/durdurma için Pro plan gerekli",
       "distributeProxies": "Proxy'leri dağıt"
     },
