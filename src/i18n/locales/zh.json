@@ -2686,6 +2686,8 @@
     "extensions": "扩展",
     "groups": "分组",
     "settings": "设置",
+    "expand": "Expand navigation",
+    "collapse": "Collapse navigation",
     "more": {
       "label": "更多",
       "closeAriaLabel": "关闭菜单",

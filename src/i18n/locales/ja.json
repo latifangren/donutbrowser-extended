@@ -2686,6 +2686,8 @@
     "extensions": "拡張機能",
     "groups": "グループ",
     "settings": "設定",
+    "expand": "Expand navigation",
+    "collapse": "Collapse navigation",
     "more": {
       "label": "その他",
       "closeAriaLabel": "メニューを閉じる",

@@ -2686,6 +2686,8 @@
     "extensions": "확장 프로그램",
     "groups": "그룹",
     "settings": "설정",
+    "expand": "Expand navigation",
+    "collapse": "Collapse navigation",
     "more": {
       "label": "더 보기",
       "closeAriaLabel": "메뉴 닫기",

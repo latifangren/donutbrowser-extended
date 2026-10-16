@@ -14,6 +14,8 @@ import {
   LuKeyboard,
   LuLightbulb,
   LuMessageSquareHeart,
+  LuPanelLeftClose,
+  LuPanelLeftOpen,
   LuPlug,
   LuPuzzle,
   LuTrash2,
@@ -45,6 +47,7 @@ export type AppPage =
 const CLICK_THRESHOLD = 5;
 const CLICK_WINDOW_MS = 2000;
 const LOGO_HIDDEN_KEY = "donut-logo-hidden";
+const RAIL_EXPANDED_KEY = "donut.rail-expanded";
 
 function useLogoEasterEgg({
   currentPage,
@@ -305,6 +308,25 @@ export function RailNav({
 }: RailNavProps) {
   const { t } = useTranslation();
   const [moreOpen, setMoreOpen] = useState(false);
+  const [expanded, setExpanded] = useState(() => {
+    try {
+      return localStorage.getItem(RAIL_EXPANDED_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
+  const toggleExpanded = useCallback(() => {
+    setExpanded((v) => {
+      const next = !v;
+      try {
+        localStorage.setItem(RAIL_EXPANDED_KEY, next ? "1" : "0");
+      } catch {
+        // Storage unavailable (private mode, etc.) — the toggle still works
+        // for this session.
+      }
+      return next;
+    });
+  }, []);
   const {
     logoRef,
     isPressed,
@@ -330,13 +352,23 @@ export function RailNav({
   }, [moreOpen]);
 
   return (
-    <nav className="relative flex w-10 shrink-0 flex-col items-center gap-1 border-r border-border bg-background py-2">
+    <nav
+      className={cn(
+        "relative flex shrink-0 flex-col gap-1 border-r border-border bg-background py-2",
+        expanded ? "w-44 items-stretch px-2" : "w-10 items-center",
+      )}
+    >
       {!isHidden ? (
         <button
           ref={logoRef}
           type="button"
           aria-label={t("header.donutLogo")}
-          className="grid size-7 shrink-0 cursor-pointer place-items-center rounded-md bg-transparent text-foreground select-none"
+          className={cn(
+            "shrink-0 cursor-pointer rounded-md bg-transparent text-foreground select-none",
+            expanded
+              ? "flex w-full items-center gap-2 px-1.5 py-1"
+              : "grid size-7 place-items-center",
+          )}
           onClick={handleClick}
           onPointerDown={() => {
             setIsPressed(true);
@@ -373,14 +405,29 @@ export function RailNav({
               <Logo className="size-5 will-change-transform" />
             </span>
           </span>
+          {expanded && (
+            <span className="truncate text-sm font-semibold text-foreground">
+              Donut
+            </span>
+          )}
         </button>
       ) : (
         <div className="size-7 shrink-0" />
       )}
 
-      <div className="my-1 h-px w-5 shrink-0 bg-border" />
+      <div
+        className={cn(
+          "my-1 h-px shrink-0 bg-border",
+          expanded ? "w-full" : "w-5",
+        )}
+      />
 
-      <div className="flex min-h-0 w-full scrollbar-none flex-col items-center gap-1 overflow-y-auto [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+      <div
+        className={cn(
+          "flex min-h-0 w-full scrollbar-none flex-col gap-1 overflow-y-auto [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden",
+          expanded ? "items-stretch" : "items-center",
+        )}
+      >
         {TOP_ITEMS.map(({ page, Icon, labelKey }) => {
           const active = currentPage === page;
           const waiting = page === "agent" ? agentRequests : 0;
@@ -401,29 +448,50 @@ export function RailNav({
                   aria-label={label}
                   aria-current={active ? "page" : undefined}
                   className={cn(
-                    "relative grid size-7 shrink-0 cursor-pointer place-items-center rounded-md transition-colors duration-100",
+                    "relative shrink-0 cursor-pointer rounded-md transition-colors duration-100",
+                    expanded
+                      ? "flex w-full items-center gap-2 px-2 py-1.5"
+                      : "grid size-7 place-items-center",
                     active
                       ? "bg-accent text-accent-foreground"
                       : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
                   )}
                 >
                   {active && <ActiveIndicator />}
-                  <Icon className="size-3.5" />
+                  <Icon className="size-3.5 shrink-0" />
+                  {expanded && (
+                    <span className="min-w-0 flex-1 truncate text-left text-xs font-medium">
+                      {label}
+                    </span>
+                  )}
                   {page === "cookieBot" && cookieBotRunning && (
                     <span
                       aria-hidden="true"
-                      className="absolute top-1 right-1 size-1.5 rounded-full bg-success"
+                      className={cn(
+                        "rounded-full bg-success",
+                        expanded
+                          ? "size-1.5 shrink-0"
+                          : "absolute top-1 right-1 size-1.5",
+                      )}
                     />
                   )}
-                  {waiting > 0 && (
-                    <span
-                      aria-hidden="true"
-                      data-testid="agent-rail-badge"
-                      className="absolute -top-1 -right-1 grid h-3.5 min-w-3.5 place-items-center rounded-full bg-warning px-1 text-[9px] leading-none font-semibold tabular-nums text-warning-foreground"
-                    >
-                      {waiting > 9 ? "9+" : waiting}
-                    </span>
-                  )}
+                  {waiting > 0 &&
+                    (expanded ? (
+                      <span
+                        data-testid="agent-rail-badge"
+                        className="grid h-4 min-w-4 shrink-0 place-items-center rounded-full bg-warning px-1 text-[9px] leading-none font-semibold tabular-nums text-warning-foreground"
+                      >
+                        {waiting > 9 ? "9+" : waiting}
+                      </span>
+                    ) : (
+                      <span
+                        aria-hidden="true"
+                        data-testid="agent-rail-badge"
+                        className="absolute -top-1 -right-1 grid h-3.5 min-w-3.5 place-items-center rounded-full bg-warning px-1 text-[9px] leading-none font-semibold tabular-nums text-warning-foreground"
+                      >
+                        {waiting > 9 ? "9+" : waiting}
+                      </span>
+                    ))}
                 </button>
               </TooltipTrigger>
               <TooltipContent side="right">{label}</TooltipContent>
@@ -444,13 +512,21 @@ export function RailNav({
             aria-label={t("rail.more.label")}
             aria-expanded={moreOpen}
             className={cn(
-              "grid size-7 shrink-0 cursor-pointer place-items-center rounded-md transition-colors duration-100",
+              "shrink-0 cursor-pointer rounded-md transition-colors duration-100",
+              expanded
+                ? "flex w-full items-center gap-2 px-2 py-1.5"
+                : "grid size-7 place-items-center",
               moreOpen
                 ? "bg-accent text-accent-foreground"
                 : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
             )}
           >
-            <GoKebabHorizontal className="size-3.5" />
+            <GoKebabHorizontal className="size-3.5 shrink-0" />
+            {expanded && (
+              <span className="truncate text-xs font-medium">
+                {t("rail.more.label")}
+              </span>
+            )}
           </button>
         </TooltipTrigger>
         <TooltipContent side="right">{t("rail.more.label")}</TooltipContent>
@@ -466,17 +542,57 @@ export function RailNav({
             aria-label={t("rail.settings")}
             aria-current={currentPage === "settings" ? "page" : undefined}
             className={cn(
-              "relative grid size-7 shrink-0 cursor-pointer place-items-center rounded-md transition-colors duration-100",
+              "relative shrink-0 cursor-pointer rounded-md transition-colors duration-100",
+              expanded
+                ? "flex w-full items-center gap-2 px-2 py-1.5"
+                : "grid size-7 place-items-center",
               currentPage === "settings"
                 ? "bg-accent text-accent-foreground"
                 : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
             )}
           >
             {currentPage === "settings" && <ActiveIndicator />}
-            <GoGear className="size-3.5" />
+            <GoGear className="size-3.5 shrink-0" />
+            {expanded && (
+              <span className="truncate text-xs font-medium">
+                {t("rail.settings")}
+              </span>
+            )}
           </button>
         </TooltipTrigger>
         <TooltipContent side="right">{t("rail.settings")}</TooltipContent>
+      </Tooltip>
+
+      <Tooltip delayDuration={300}>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            onClick={toggleExpanded}
+            aria-label={t(expanded ? "rail.collapse" : "rail.expand")}
+            aria-expanded={expanded}
+            className={cn(
+              "shrink-0 cursor-pointer rounded-md transition-colors duration-100",
+              "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+              expanded
+                ? "flex w-full items-center gap-2 px-2 py-1.5"
+                : "grid size-7 place-items-center",
+            )}
+          >
+            {expanded ? (
+              <LuPanelLeftClose className="size-3.5 shrink-0" />
+            ) : (
+              <LuPanelLeftOpen className="size-3.5 shrink-0" />
+            )}
+            {expanded && (
+              <span className="truncate text-xs font-medium">
+                {t("rail.collapse")}
+              </span>
+            )}
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="right">
+          {t(expanded ? "rail.collapse" : "rail.expand")}
+        </TooltipContent>
       </Tooltip>
 
       {moreOpen && (
@@ -492,7 +608,10 @@ export function RailNav({
           <div
             role="menu"
             aria-label={t("rail.more.label")}
-            className="absolute bottom-14 left-11 z-40 w-56 rounded-lg bg-card p-1 text-card-foreground shadow-sm"
+            className={cn(
+              "absolute bottom-14 z-40 w-56 rounded-lg bg-card p-1 text-card-foreground shadow-sm",
+              expanded ? "left-46" : "left-11",
+            )}
           >
             {MORE_ITEMS.map(({ page, Icon, labelKey, hintKey }) => (
               <button

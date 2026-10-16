@@ -2726,6 +2726,8 @@
     "extensions": "Расширения",
     "groups": "Группы",
     "settings": "Настройки",
+    "expand": "Expand navigation",
+    "collapse": "Collapse navigation",
     "more": {
       "label": "Ещё",
       "closeAriaLabel": "Закрыть меню",

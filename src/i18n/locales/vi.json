@@ -2686,6 +2686,8 @@
     "extensions": "Tiện ích",
     "groups": "Nhóm",
     "settings": "Cài đặt",
+    "expand": "Expand navigation",
+    "collapse": "Collapse navigation",
     "more": {
       "label": "Thêm",
       "closeAriaLabel": "Đóng menu",

@@ -2706,6 +2706,8 @@
     "extensions": "Extensions",
     "groups": "Groupes",
     "settings": "Paramètres",
+    "expand": "Expand navigation",
+    "collapse": "Collapse navigation",
     "more": {
       "label": "Plus",
       "closeAriaLabel": "Fermer le menu",
