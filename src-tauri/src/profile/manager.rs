@@ -2971,21 +2971,37 @@ pub async fn create_browser_profile_new(
 ) -> Result<BrowserProfile, String> {
   // Checked before anything is created, so a bad page leaves nothing behind.
   let start_urls = start_urls.map(checked_start_urls).transpose()?;
-  let fingerprint_os = wayfern_config.as_ref().and_then(|c| c.os.as_deref());
 
-  if !crate::cloud_auth::CLOUD_AUTH
-    .is_fingerprint_os_allowed(fingerprint_os)
-    .await
-  {
-    return Err(serde_json::json!({ "code": "FINGERPRINT_REQUIRES_PRO" }).to_string());
+  let browser_type =
+    BrowserType::from_str(&browser_str).map_err(|e| format!("Invalid browser type: {e}"))?;
+
+  let mut wayfern_config = wayfern_config;
+  if browser_type == BrowserType::Cloak {
+    // CloakBrowser spoofs cross-OS natively via launch flags: no paywall.
+    // Seed + OS defaults so every cloak profile has fingerprint material.
+    // Timezone/location resolve proxy-aware at first launch.
+    let cfg = wayfern_config.get_or_insert_with(WayfernConfig::default);
+    if cfg.fingerprint.as_ref().is_none_or(|s| s.is_empty()) {
+      cfg.fingerprint = Some(crate::browser::generate_fingerprint_seed());
+    }
+    if cfg.os.is_none() {
+      cfg.os = Some(std::env::consts::OS.to_string());
+    }
+  } else {
+    // Wayfern's cross-OS fingerprint stays behind the PRO gate.
+    let fingerprint_os = wayfern_config.as_ref().and_then(|c| c.os.as_deref());
+    if !crate::cloud_auth::CLOUD_AUTH
+      .is_fingerprint_os_allowed(fingerprint_os)
+      .await
+    {
+      return Err(serde_json::json!({ "code": "FINGERPRINT_REQUIRES_PRO" }).to_string());
+    }
   }
 
   // A dead/unreachable proxy or VPN (or a 402 from an expired proxy
   // subscription) cancels creation with a translatable error.
   crate::validate_profile_network(proxy_id.as_deref(), vpn_id.as_deref()).await?;
 
-  let browser_type =
-    BrowserType::from_str(&browser_str).map_err(|e| format!("Invalid browser type: {e}"))?;
   let profile = create_browser_profile_with_group(
     app_handle,
     name,

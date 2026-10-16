@@ -948,8 +948,28 @@ impl BrowserRunner {
         .map_err(|e| err(format!("No free CDP port: {e}")))?,
     };
 
+    // First launch: resolve the proxy-aware geolocation once and persist it,
+    // so the fingerprint timezone matches the exit IP from then on.
+    let mut profile = profile.clone();
+    let needs_location = profile
+      .wayfern_config
+      .as_ref()
+      .is_none_or(|c| c.location.as_ref().is_none_or(|s| s.is_empty()));
+    if needs_location {
+      if let Some(location) = Self::resolve_cloak_location(proxy.as_ref()).await {
+        let cfg = profile.wayfern_config.get_or_insert_with(Default::default);
+        cfg.location = Some(location);
+        // Best-effort: the launch continues with an in-memory location even
+        // if the persist fails.
+        if let Err(e) = self.save_process_info(&profile) {
+          log::warn!("Cloak location persist failed profile={profile_id} err=\"{e}\"");
+        }
+      }
+    }
+
     let browser = crate::browser::create_browser(crate::browser::BrowserType::Cloak);
-    let args = browser
+    let fingerprint = Self::cloak_fingerprint_material(&profile);
+    let mut args = browser
       .create_launch_args(
         &profile_path_str,
         proxy.as_ref(),
@@ -958,8 +978,9 @@ impl BrowserRunner {
         headless,
       )
       .map_err(|e| err(format!("CloakBrowser launch args failed: {e}")))?;
+    args.extend(browser.fingerprint_args(&fingerprint));
 
-    emit_launch_stage(profile, "browser", None);
+    emit_launch_stage(&profile, "browser", None);
     let mut child = tokio::process::Command::new(&executable)
       .args(&args)
       .kill_on_drop(false)
@@ -1034,6 +1055,82 @@ impl BrowserRunner {
       }
       tokio::time::sleep(Duration::from_millis(500)).await;
     }
+  }
+
+  /// Build the neutral fingerprint material for a CloakBrowser profile from
+  /// its stored config. Unknown/absent fields are left empty; the engine
+  /// derives them from the seed.
+  fn cloak_fingerprint_material(profile: &BrowserProfile) -> crate::browser::FingerprintMaterial {
+    let mut fp = crate::browser::FingerprintMaterial::default();
+    let Some(cfg) = profile.wayfern_config.as_ref() else {
+      return fp;
+    };
+    fp.seed = cfg.fingerprint.clone().filter(|s| !s.is_empty());
+    fp.os = cfg.os.clone();
+    fp.screen_width = cfg.screen_max_width;
+    fp.screen_height = cfg.screen_max_height;
+    fp.webrtc_blocked =
+      matches!(cfg.webrtc_mode.as_deref(), Some("block")) || cfg.block_webrtc == Some(true);
+    if let Some(loc_str) = cfg.location.as_deref() {
+      if let Ok(loc) = serde_json::from_str::<serde_json::Value>(loc_str) {
+        fp.timezone = loc
+          .get("timezone")
+          .and_then(|v| v.as_str())
+          .filter(|s| !s.is_empty())
+          .map(str::to_string);
+        fp.latitude = loc.get("latitude").and_then(|v| v.as_f64());
+        fp.longitude = loc.get("longitude").and_then(|v| v.as_f64());
+        fp.locale = loc
+          .get("language")
+          .and_then(|v| v.as_str())
+          .filter(|s| !s.is_empty())
+          .map(str::to_string);
+      }
+    }
+    fp
+  }
+
+  /// Proxy-aware geolocation for a CloakBrowser profile, as the location JSON
+  /// the fingerprint material reads. Best-effort: `None` when the IP or the
+  /// GeoIP database is unavailable, and the launch simply omits those flags.
+  async fn resolve_cloak_location(proxy: Option<&crate::browser::ProxySettings>) -> Option<String> {
+    let proxy_url = proxy.map(|p| {
+      let scheme = match p.proxy_type.to_ascii_lowercase().as_str() {
+        "socks5" => "socks5",
+        "socks4" => "socks4",
+        _ => "http",
+      };
+      match (p.username.as_deref(), p.password.as_deref()) {
+        (Some(u), Some(pw)) if !u.is_empty() => {
+          format!("{scheme}://{u}:{pw}@{}:{}", p.host, p.port)
+        }
+        _ => format!("{scheme}://{}:{}", p.host, p.port),
+      }
+    });
+    let ip = crate::ip_utils::fetch_public_ip(proxy_url.as_deref())
+      .await
+      .map_err(|e| {
+        log::debug!("Cloak geolocation: public IP lookup failed err=\"{e}\"");
+        e
+      })
+      .ok()?;
+    let geo = crate::geolocation::get_geolocation(&ip)
+      .map_err(|e| {
+        log::debug!("Cloak geolocation: GeoIP lookup failed ip=\"{ip}\" err=\"{e}\"");
+        e
+      })
+      .ok()?;
+    let locale_str = geo.locale.as_string();
+    Some(
+      serde_json::json!({
+        "timezone": geo.timezone,
+        "latitude": geo.latitude,
+        "longitude": geo.longitude,
+        "language": locale_str,
+        "languages": [locale_str],
+      })
+      .to_string(),
+    )
   }
 
   /// Tag rebuild + frontend events shared by every engine's successful launch.

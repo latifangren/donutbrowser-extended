@@ -547,7 +547,7 @@ export function CreateProfileDialog({
         releaseType: "stable",
         proxyId: isVpnSelection ? undefined : selectedProxyId,
         vpnId: isVpnSelection ? selectedProxyId?.slice(4) : undefined,
-        wayfernConfig: selectedBrowser === "wayfern" ? wayfernConfig : undefined,
+        wayfernConfig,
         groupId:
           selectedGroupId && selectedGroupId !== "__all__"
             ? selectedGroupId
@@ -693,9 +693,8 @@ export function CreateProfileDialog({
                 className="h-9 text-base font-medium md:text-base"
               />
             </label>
-            {selectedBrowser === "wayfern" && (
-              <>
-                <span id={osLabelId} className="sr-only">
+            <>
+              <span id={osLabelId} className="sr-only">
                   {t("fingerprint.osLabel")}
                 </span>
                 <Popover open={osPopoverOpen} onOpenChange={setOsPopoverOpen}>
@@ -732,7 +731,10 @@ export function CreateProfileDialog({
                   <CommandList id={osListboxId}>
                     <CommandGroup>
                       {OS_OPTIONS.map((os) => {
-                        const locked = os !== hostOs && !crossOsUnlocked;
+                        const locked =
+                          os !== hostOs &&
+                          !crossOsUnlocked &&
+                          selectedBrowser === "wayfern";
                         const Icon = getOSIcon(os);
                         return (
                           <CommandItem
@@ -766,9 +768,8 @@ export function CreateProfileDialog({
                   </CommandList>
                 </Command>
                 </PopoverContent>
-                </Popover>
-              </>
-            )}
+              </Popover>
+            </>
           </motion.div>
 
           <motion.div

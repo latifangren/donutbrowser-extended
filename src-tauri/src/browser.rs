@@ -58,8 +58,48 @@ pub trait Browser: Send + Sync {
     remote_debugging_port: Option<u16>,
     headless: bool,
   ) -> Result<Vec<String>, Box<dyn std::error::Error>>;
+  /// Fingerprint flags for engines that spoof via launch args.
+  /// Default: no fingerprint flags (engines that inject identity another way).
+  fn fingerprint_args(&self, fingerprint: &FingerprintMaterial) -> Vec<String> {
+    let _ = fingerprint;
+    Vec::new()
+  }
   fn is_version_downloaded(&self, version: &str, binaries_dir: &Path) -> bool;
   fn prepare_executable(&self, executable_path: &Path) -> Result<(), Box<dyn std::error::Error>>;
+}
+
+/// Fingerprint material for engines that spoof via launch flags.
+///
+/// Neutral carrier: the runner populates it from whatever config the profile
+/// stores (today `WayfernConfig`; a neutral `FingerprintConfig` arrives with
+/// the profile migration). Engines read only the fields they understand.
+#[derive(Debug, Clone, Default)]
+pub struct FingerprintMaterial {
+  /// Stable per-profile seed. Drives all derived values the engine randomizes.
+  pub seed: Option<String>,
+  /// "windows" | "macos" | "linux" | "android" | "ios".
+  pub os: Option<String>,
+  /// IANA timezone, e.g. "Asia/Jakarta".
+  pub timezone: Option<String>,
+  pub latitude: Option<f64>,
+  pub longitude: Option<f64>,
+  /// BCP-47 locale, e.g. "id-ID".
+  pub locale: Option<String>,
+  pub screen_width: Option<u32>,
+  pub screen_height: Option<u32>,
+  /// True when the user asked WebRTC to be fully blocked.
+  pub webrtc_blocked: bool,
+}
+
+/// Random 256-bit hex seed for a profile's fingerprint.
+pub fn generate_fingerprint_seed() -> String {
+  format!(
+    "{:016x}{:016x}{:016x}{:016x}",
+    rand::random::<u64>(),
+    rand::random::<u64>(),
+    rand::random::<u64>(),
+    rand::random::<u64>()
+  )
 }
 
 /// First file named `file_name` under `dir`, depth-first. Used by engines
@@ -543,8 +583,8 @@ pub fn select_cloak_release(
 ///
 /// Only the free, keyless builds are ever used; the `-pro` builds (license
 /// key required) are excluded by the release selection above, so no
-/// CloakBrowser account is needed. Per-profile fingerprint flags arrive in a
-/// later milestone; the free build already patches fingerprints natively.
+/// CloakBrowser account is needed. Per-profile fingerprint flags come from
+/// `fingerprint_args`; the free build already patches fingerprints natively.
 pub struct CloakBrowser;
 
 impl CloakBrowser {
@@ -576,9 +616,9 @@ impl Browser for CloakBrowser {
     remote_debugging_port: Option<u16>,
     headless: bool,
   ) -> Result<Vec<String>, Box<dyn std::error::Error>> {
-    // Stock Chromium args. No fingerprint flags: the free CloakBrowser build
-    // patches fingerprints at the C++ level, and per-profile flags are a
-    // later milestone.
+    // Stock Chromium args. Fingerprint spoofing rides on `--fingerprint-*`
+    // flags (see `fingerprint_args`); the free CloakBrowser build also
+    // patches fingerprints at the C++ level.
     let mut args = vec![
       format!("--user-data-dir={}", profile_path),
       "--no-default-browser-check".to_string(),
@@ -617,6 +657,61 @@ impl Browser for CloakBrowser {
     }
 
     Ok(args)
+  }
+
+  /// Map fingerprint material to CloakBrowser's `--fingerprint-*` flags.
+  ///
+  /// Flag names verified against the free build's binary
+  /// (`chromium-v146.0.7680.177.5`, 2026-10-16): every name below appears in
+  /// its switch table. Values CloakBrowser derives from the seed when a flag
+  /// is absent, so only material we actually have is emitted.
+  fn fingerprint_args(&self, fp: &FingerprintMaterial) -> Vec<String> {
+    let mut args = Vec::new();
+
+    if let Some(seed) = fp.seed.as_deref().filter(|s| !s.is_empty()) {
+      args.push(format!("--fingerprint={seed}"));
+    }
+
+    if let Some(os) = fp.os.as_deref() {
+      // CloakBrowser's platform vocabulary (matches multizen's usage).
+      let platform = match os.to_ascii_lowercase().as_str() {
+        "windows" => "Windows",
+        "macos" => "macOS",
+        "linux" => "Linux",
+        "android" => "Android",
+        "ios" => "iOS",
+        _ => "",
+      };
+      if !platform.is_empty() {
+        args.push(format!("--fingerprint-platform={platform}"));
+      }
+    }
+
+    if let Some(tz) = fp.timezone.as_deref().filter(|s| !s.is_empty()) {
+      args.push(format!("--fingerprint-timezone={tz}"));
+    }
+
+    if let (Some(lat), Some(lon)) = (fp.latitude, fp.longitude) {
+      args.push(format!("--fingerprint-location={lat},{lon}"));
+    }
+
+    if let Some(locale) = fp.locale.as_deref().filter(|s| !s.is_empty()) {
+      args.push(format!("--fingerprint-locale={locale}"));
+    }
+
+    if let (Some(w), Some(h)) = (fp.screen_width, fp.screen_height) {
+      args.push(format!("--fingerprint-screen-width={w}"));
+      args.push(format!("--fingerprint-screen-height={h}"));
+    }
+
+    // Only the documented default is emitted. A user who asked for full
+    // WebRTC blocking gets no flag rather than a wrong one: the switch's
+    // full vocabulary is not published.
+    if !fp.webrtc_blocked {
+      args.push("--fingerprint-webrtc-ip=auto".to_string());
+    }
+
+    args
   }
 
   fn is_version_downloaded(&self, version: &str, binaries_dir: &Path) -> bool {
@@ -1059,6 +1154,69 @@ mod tests {
     assert!(args.contains(&"--user-data-dir=/tmp/p".to_string()));
     assert!(args.contains(&"--remote-debugging-port=9222".to_string()));
     assert!(!args.iter().any(|a| a.starts_with("--headless")));
+  }
+
+  #[test]
+  fn test_cloak_fingerprint_args_full() {
+    let fp = FingerprintMaterial {
+      seed: Some("abc123".to_string()),
+      os: Some("windows".to_string()),
+      timezone: Some("Asia/Jakarta".to_string()),
+      latitude: Some(-6.2),
+      longitude: Some(106.8),
+      locale: Some("id-ID".to_string()),
+      screen_width: Some(1920),
+      screen_height: Some(1080),
+      webrtc_blocked: false,
+    };
+    let args = CloakBrowser::new().fingerprint_args(&fp);
+    assert!(args.contains(&"--fingerprint=abc123".to_string()));
+    assert!(args.contains(&"--fingerprint-platform=Windows".to_string()));
+    assert!(args.contains(&"--fingerprint-timezone=Asia/Jakarta".to_string()));
+    assert!(args
+      .iter()
+      .any(|a| a.starts_with("--fingerprint-location=")));
+    assert!(args.contains(&"--fingerprint-locale=id-ID".to_string()));
+    assert!(args.contains(&"--fingerprint-screen-width=1920".to_string()));
+    assert!(args.contains(&"--fingerprint-screen-height=1080".to_string()));
+    assert!(args.contains(&"--fingerprint-webrtc-ip=auto".to_string()));
+  }
+
+  #[test]
+  fn test_cloak_fingerprint_args_minimal_and_blocked() {
+    // Empty material: only the webrtc default is emitted.
+    let args = CloakBrowser::new().fingerprint_args(&FingerprintMaterial::default());
+    assert_eq!(args, vec!["--fingerprint-webrtc-ip=auto".to_string()]);
+
+    // Unknown OS is skipped, never emitted as a bogus value.
+    let fp = FingerprintMaterial {
+      os: Some("plan9".to_string()),
+      webrtc_blocked: true,
+      ..FingerprintMaterial::default()
+    };
+    let args = CloakBrowser::new().fingerprint_args(&fp);
+    assert!(args
+      .iter()
+      .all(|a| !a.starts_with("--fingerprint-platform=")));
+    assert!(args
+      .iter()
+      .all(|a| !a.starts_with("--fingerprint-webrtc-ip=")));
+
+    // Wayfern's engine keeps the default: no fingerprint flags.
+    let fp = FingerprintMaterial {
+      seed: Some("abc123".to_string()),
+      ..FingerprintMaterial::default()
+    };
+    assert!(WayfernBrowser::new().fingerprint_args(&fp).is_empty());
+  }
+
+  #[test]
+  fn test_generate_fingerprint_seed_format() {
+    let a = generate_fingerprint_seed();
+    let b = generate_fingerprint_seed();
+    assert_eq!(a.len(), 64);
+    assert!(a.chars().all(|c| c.is_ascii_hexdigit()));
+    assert_ne!(a, b);
   }
 
   #[test]
