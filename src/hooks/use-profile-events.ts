@@ -128,11 +128,16 @@ export function useProfileEvents(): UseProfileEventsReturn {
   // mutate the Set incrementally instead of fan-out-polling all N profiles
   // every 30s (which was O(N) sysinfo scans and saturated the runtime for
   // users with hundreds of profiles).
+  //
+  // The sync is two-way: a profile whose process_id is gone is removed even
+  // if its running-changed event was lost, so a stuck "running" state
+  // self-heals on the next profiles reload instead of lasting until restart.
   useEffect(() => {
     setRunningProfiles((prev) => {
       const next = new Set(prev);
       for (const p of profiles) {
         if (p.process_id != null) next.add(p.id);
+        else next.delete(p.id);
       }
       // Drop ids for profiles that no longer exist
       const valid = new Set(profiles.map((p) => p.id));

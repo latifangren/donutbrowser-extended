@@ -424,7 +424,7 @@ impl BrowserVersionManager {
           .assets
           .iter()
           .any(|a| a.name == asset)
-          .then(|| version)
+          .then_some(version)
       })
       .collect();
     versions.dedup();

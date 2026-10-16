@@ -7,6 +7,7 @@ use crate::proxy_manager::PROXY_MANAGER;
 use crate::wayfern_manager::FingerprintConfig;
 use std::fs::{self, create_dir_all};
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 use sysinfo::{Pid, ProcessRefreshKind, RefreshKind, System};
 use url::Url;
 

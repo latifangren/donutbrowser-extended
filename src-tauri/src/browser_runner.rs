@@ -9,6 +9,7 @@ use crate::wayfern_manager::{FingerprintConfig, WayfernManager};
 use serde::Serialize;
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::str::FromStr;
 use std::sync::{Arc, LazyLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -904,7 +905,9 @@ impl BrowserRunner {
   ) -> Result<BrowserProfile, Box<dyn std::error::Error + Send + Sync>> {
     let launch_started = std::time::Instant::now();
     let profile_id = profile.id.to_string();
-    let err = |msg: String| -> Box<dyn std::error::Error + Send + Sync> { msg.into() };
+    fn err(msg: String) -> Box<dyn std::error::Error + Send + Sync> {
+      msg.into()
+    }
 
     emit_launch_stage(profile, "executable", None);
     let executable = self
@@ -926,7 +929,7 @@ impl BrowserRunner {
     let proxy = self
       .resolve_launch_proxy(profile)
       .await
-      .map_err(|e| err(e))?;
+      .map_err(err)?;
     if let Some(p) = proxy.as_ref() {
       if crate::xray::is_xray_proxy_type(&p.proxy_type) {
         return Err(

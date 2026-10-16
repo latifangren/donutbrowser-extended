@@ -37,8 +37,12 @@ impl BrowserType {
       BrowserType::Cloak => "CloakBrowser",
     }
   }
+}
 
-  pub fn from_str(s: &str) -> Result<Self, String> {
+impl std::str::FromStr for BrowserType {
+  type Err = String;
+
+  fn from_str(s: &str) -> Result<Self, Self::Err> {
     match s {
       "wayfern" => Ok(BrowserType::Wayfern),
       "cloak" => Ok(BrowserType::Cloak),
@@ -435,6 +439,12 @@ impl WayfernBrowser {
   }
 }
 
+impl Default for WayfernBrowser {
+  fn default() -> Self {
+    Self::new()
+  }
+}
+
 impl Browser for WayfernBrowser {
   fn capabilities(&self) -> EngineCapabilities {
     EngineCapabilities {
@@ -617,6 +627,12 @@ pub struct CloakBrowser;
 impl CloakBrowser {
   pub fn new() -> Self {
     Self
+  }
+}
+
+impl Default for CloakBrowser {
+  fn default() -> Self {
+    Self::new()
   }
 }
 
@@ -913,6 +929,7 @@ static BROWSER_FACTORY: std::sync::LazyLock<BrowserFactory> =
 #[cfg(test)]
 mod tests {
   use super::*;
+  use std::str::FromStr;
 
   #[cfg(target_os = "macos")]
   #[test]

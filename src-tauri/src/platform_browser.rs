@@ -434,44 +434,46 @@ pub mod windows {
   pub async fn kill_browser_process_impl(
     pid: u32,
   ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    // First try using sysinfo (cross-platform approach)
-    use sysinfo::{Pid, System};
-    let system = System::new_all();
-    if let Some(process) = system.process(Pid::from(pid as usize)) {
-      if process.kill() {
-        log::debug!("Browser process killed pid={pid}");
+    use std::os::windows::process::CommandExt;
+    use std::process::Command;
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+    // Already gone — nothing to do.
+    {
+      use sysinfo::{Pid, System};
+      let system = System::new_all();
+      if system.process(Pid::from(pid as usize)).is_none() {
+        log::debug!("Browser process already exited pid={pid}");
         return Ok(());
       }
     }
 
-    // Fallback to Windows-specific process termination
-    use std::process::Command;
-
-    // Try taskkill command as fallback
-    use std::os::windows::process::CommandExt;
-    const CREATE_NO_WINDOW: u32 = 0x08000000;
+    // /T terminates the whole process tree. A single-PID kill leaves
+    // Chromium's child processes (renderers, GPU, utility) alive with the
+    // profile's --user-data-dir still in their cmdline, which makes
+    // check_browser_status report the browser as running forever — the
+    // profile then looks stuck "running" in the UI until the app restarts.
     let output = Command::new("taskkill")
-      .args(["/F", "/PID", &pid.to_string()])
+      .args(["/F", "/T", "/PID", &pid.to_string()])
       .creation_flags(CREATE_NO_WINDOW)
       .output();
 
     match output {
       Ok(result) => {
         if result.status.success() {
-          log::debug!("Browser process killed with taskkill pid={pid}");
+          log::debug!("Browser process tree killed pid={pid}");
           Ok(())
         } else {
           Err(
             format!(
-              "Failed to kill process {} with taskkill: {}",
-              pid,
+              "Failed to kill process {pid} with taskkill: {}",
               String::from_utf8_lossy(&result.stderr)
             )
             .into(),
           )
         }
       }
-      Err(e) => Err(format!("Failed to execute taskkill for process {}: {}", pid, e).into()),
+      Err(e) => Err(format!("Failed to execute taskkill for process {pid}: {e}").into()),
     }
   }
 }
