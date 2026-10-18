@@ -926,10 +926,7 @@ impl BrowserRunner {
     // Direct HTTP/SOCKS proxies ride along as a launch arg. Xray and VPN
     // need worker processes that only the Wayfern path starts today.
     emit_launch_stage(profile, "network", None);
-    let proxy = self
-      .resolve_launch_proxy(profile)
-      .await
-      .map_err(err)?;
+    let proxy = self.resolve_launch_proxy(profile).await.map_err(err)?;
     if let Some(p) = proxy.as_ref() {
       if crate::xray::is_xray_proxy_type(&p.proxy_type) {
         return Err(
@@ -1665,10 +1662,13 @@ impl BrowserRunner {
 
     if profile.browser == "cloak" {
       if let Some(pid) = profile.process_id {
-        let profiles_dir = self.profile_manager.get_profiles_dir();
-        let profile_data_path =
-          crate::ephemeral_dirs::get_effective_profile_path(profile, &profiles_dir);
-        let profile_path_str = profile_data_path.to_string_lossy().to_string();
+        #[cfg(any(target_os = "macos", target_os = "linux"))]
+        let profile_path_str = {
+          let profiles_dir = self.profile_manager.get_profiles_dir();
+          crate::ephemeral_dirs::get_effective_profile_path(profile, &profiles_dir)
+            .to_string_lossy()
+            .to_string()
+        };
 
         #[cfg(target_os = "macos")]
         let kill_result =
@@ -2290,7 +2290,13 @@ async fn launch_browser_profile_tracked(
         if io_error.kind() == std::io::ErrorKind::Other
           && io_error.to_string().contains("Exec format error")
         {
-          return Err(format!("Failed to launch browser: Executable format error. This browser version is not compatible with your system architecture ({}). Please try a different browser or version that supports your platform.", std::env::consts::ARCH));
+          return Err(
+            serde_json::json!({
+              "code": "BROWSER_ARCH_INCOMPATIBLE",
+              "params": { "platform": std::env::consts::ARCH },
+            })
+            .to_string(),
+          );
         }
       }
       return Err(crate::wrap_backend_error(

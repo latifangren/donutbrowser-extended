@@ -2433,6 +2433,7 @@
     "importNoItems": "Nothing selected to import",
     "browserNotDownloaded": "No downloaded version of {{browser}} is available. Download it first, then retry the import.",
     "archiveExtractionFailed": "Failed to extract the archive: {{detail}}",
+    "browserArchIncompatible": "This browser version is not compatible with your system architecture ({{platform}}). Please try a different browser or version that supports your platform.",
     "unsupportedArchiveFormat": "Unsupported archive format. Only ZIP archives are supported.",
     "clearOnCloseUnavailable": "Clear-on-close isn't available for ephemeral or password-protected profiles.",
     "proxyAndVpnMutuallyExclusive": "A profile can use either a proxy or a VPN, not both.",

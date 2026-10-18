@@ -2453,6 +2453,7 @@
     "importNoItems": "Nada selecionado para importar",
     "browserNotDownloaded": "Nenhuma versão baixada de {{browser}} está disponível. Baixe-a primeiro e tente importar novamente.",
     "archiveExtractionFailed": "Falha ao extrair o arquivo: {{detail}}",
+    "browserArchIncompatible": "This browser version is not compatible with your system architecture ({{platform}}). Please try a different browser or version that supports your platform.",
     "unsupportedArchiveFormat": "Formato de arquivo não suportado. Apenas arquivos ZIP são suportados.",
     "clearOnCloseUnavailable": "A limpeza ao fechar não está disponível para perfis efêmeros ou protegidos por senha.",
     "proxyAndVpnMutuallyExclusive": "Um perfil pode usar um proxy ou uma VPN, mas não ambos.",

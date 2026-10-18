@@ -893,7 +893,7 @@ impl Downloader {
           };
           let _ = events::emit("download-progress", &progress);
 
-          return Err(format!("Failed to extract browser: {e}").into());
+          return Err(crate::backend_error_with_detail("ARCHIVE_EXTRACTION_FAILED", e).into());
         }
       }
 

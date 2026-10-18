@@ -123,6 +123,7 @@ export type BackendErrorCode =
   | "IMPORT_NO_ITEMS"
   | "BROWSER_NOT_DOWNLOADED"
   | "ARCHIVE_EXTRACTION_FAILED"
+  | "BROWSER_ARCH_INCOMPATIBLE"
   | "UNSUPPORTED_ARCHIVE_FORMAT"
   | "CLEAR_ON_CLOSE_UNAVAILABLE"
   | "PROXY_AND_VPN_MUTUALLY_EXCLUSIVE"
@@ -679,6 +680,10 @@ export function translateBackendError(t: TFunction, err: unknown): string {
     case "ARCHIVE_EXTRACTION_FAILED":
       return t("backendErrors.archiveExtractionFailed", {
         detail: parsed.params?.detail ?? "",
+      });
+    case "BROWSER_ARCH_INCOMPATIBLE":
+      return t("backendErrors.browserArchIncompatible", {
+        platform: parsed.params?.platform ?? "",
       });
     case "UNSUPPORTED_ARCHIVE_FORMAT":
       return t("backendErrors.unsupportedArchiveFormat");

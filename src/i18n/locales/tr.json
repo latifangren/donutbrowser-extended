@@ -2433,6 +2433,7 @@
     "importNoItems": "İçe aktarmak için hiçbir şey seçilmedi",
     "browserNotDownloaded": "{{browser}} tarayıcısının indirilmiş bir sürümü yok. Önce indirin, sonra içe aktarmayı yeniden deneyin.",
     "archiveExtractionFailed": "Arşiv çıkarılamadı: {{detail}}",
+    "browserArchIncompatible": "This browser version is not compatible with your system architecture ({{platform}}). Please try a different browser or version that supports your platform.",
     "unsupportedArchiveFormat": "Desteklenmeyen arşiv biçimi. Yalnızca ZIP arşivleri desteklenir.",
     "clearOnCloseUnavailable": "Kapatırken temizleme, geçici veya parola korumalı profillerde kullanılamaz.",
     "proxyAndVpnMutuallyExclusive": "Bir profil ya proxy ya da VPN kullanabilir, ikisini birden kullanamaz.",

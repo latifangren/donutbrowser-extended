@@ -2433,6 +2433,7 @@
     "importNoItems": "Nichts zum Importieren ausgewählt",
     "browserNotDownloaded": "Es ist keine heruntergeladene Version von {{browser}} verfügbar. Laden Sie sie zuerst herunter und wiederholen Sie dann den Import.",
     "archiveExtractionFailed": "Das Archiv konnte nicht entpackt werden: {{detail}}",
+    "browserArchIncompatible": "This browser version is not compatible with your system architecture ({{platform}}). Please try a different browser or version that supports your platform.",
     "unsupportedArchiveFormat": "Nicht unterstütztes Archivformat. Nur ZIP-Archive werden unterstützt.",
     "clearOnCloseUnavailable": "„Beim Schließen löschen“ ist für flüchtige oder passwortgeschützte Profile nicht verfügbar.",
     "proxyAndVpnMutuallyExclusive": "Ein Profil kann entweder einen Proxy oder ein VPN verwenden, nicht beides.",

@@ -2473,6 +2473,7 @@
     "importNoItems": "Ничего не выбрано для импорта",
     "browserNotDownloaded": "Нет загруженной версии {{browser}}. Сначала загрузите её, затем повторите импорт.",
     "archiveExtractionFailed": "Не удалось распаковать архив: {{detail}}",
+    "browserArchIncompatible": "This browser version is not compatible with your system architecture ({{platform}}). Please try a different browser or version that supports your platform.",
     "unsupportedArchiveFormat": "Неподдерживаемый формат архива. Поддерживаются только ZIP-архивы.",
     "clearOnCloseUnavailable": "Очистка при закрытии недоступна для эфемерных и защищённых паролем профилей.",
     "proxyAndVpnMutuallyExclusive": "Профиль может использовать либо прокси, либо VPN, но не оба сразу.",

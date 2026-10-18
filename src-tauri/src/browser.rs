@@ -125,6 +125,7 @@ pub fn generate_fingerprint_seed() -> String {
 
 /// First file named `file_name` under `dir`, depth-first. Used by engines
 /// whose archives unpack the browser binary at an unpredictable depth.
+#[cfg(target_os = "linux")]
 fn find_file_named(dir: &Path, file_name: &str) -> Option<PathBuf> {
   let mut found = Vec::new();
   find_all_named(dir, file_name, &mut found);

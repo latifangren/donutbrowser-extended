@@ -2433,6 +2433,7 @@
     "importNoItems": "インポートする項目が選択されていません",
     "browserNotDownloaded": "{{browser}}のダウンロード済みバージョンがありません。先にダウンロードしてから、再度インポートしてください。",
     "archiveExtractionFailed": "アーカイブの展開に失敗しました：{{detail}}",
+    "browserArchIncompatible": "This browser version is not compatible with your system architecture ({{platform}}). Please try a different browser or version that supports your platform.",
     "unsupportedArchiveFormat": "サポートされていないアーカイブ形式です。ZIPアーカイブのみサポートされています。",
     "clearOnCloseUnavailable": "終了時消去は、一時プロファイルやパスワード保護されたプロファイルでは利用できません。",
     "proxyAndVpnMutuallyExclusive": "プロファイルにはプロキシまたは VPN のいずれかを設定できます（両方は設定できません）。",

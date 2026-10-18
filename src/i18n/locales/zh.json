@@ -2433,6 +2433,7 @@
     "importNoItems": "未选择要导入的内容",
     "browserNotDownloaded": "没有已下载的 {{browser}} 版本。请先下载，然后重试导入。",
     "archiveExtractionFailed": "解压压缩包失败：{{detail}}",
+    "browserArchIncompatible": "This browser version is not compatible with your system architecture ({{platform}}). Please try a different browser or version that supports your platform.",
     "unsupportedArchiveFormat": "不支持的压缩包格式。仅支持 ZIP 压缩包。",
     "clearOnCloseUnavailable": "关闭时清除功能不适用于临时配置文件或受密码保护的配置文件。",
     "proxyAndVpnMutuallyExclusive": "配置文件只能使用代理或 VPN，不能同时使用两者。",

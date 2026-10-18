@@ -2433,6 +2433,7 @@
     "importNoItems": "Chưa chọn mục nào để nhập",
     "browserNotDownloaded": "Không có phiên bản {{browser}} nào đã tải xuống. Hãy tải xuống trước, sau đó thử nhập lại.",
     "archiveExtractionFailed": "Không thể giải nén tệp: {{detail}}",
+    "browserArchIncompatible": "This browser version is not compatible with your system architecture ({{platform}}). Please try a different browser or version that supports your platform.",
     "unsupportedArchiveFormat": "Định dạng tệp nén không được hỗ trợ. Chỉ hỗ trợ tệp ZIP.",
     "clearOnCloseUnavailable": "Tính năng xóa khi đóng không khả dụng với hồ sơ tạm thời hoặc hồ sơ được bảo vệ bằng mật khẩu.",
     "proxyAndVpnMutuallyExclusive": "Một hồ sơ chỉ có thể dùng proxy hoặc VPN, không dùng cả hai.",
