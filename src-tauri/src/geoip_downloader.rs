@@ -518,6 +518,7 @@ mod tests {
         created_at: Some("2023-01-01T00:00:00Z".to_string()),
         updated_at: Some("2023-01-01T00:00:00Z".to_string()),
         browser_download_url: "https://example.com/GeoLite2-City.mmdb".to_string(),
+        digest: None,
       }],
     }
   }

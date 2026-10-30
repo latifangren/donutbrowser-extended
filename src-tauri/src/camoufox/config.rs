@@ -601,15 +601,24 @@ pub enum ConfigError {
 
 /// Get Firefox version from executable path.
 pub fn get_firefox_version(executable_path: &Path) -> Option<u32> {
-  // Try to read version.json from the same directory
-  let version_path = executable_path.parent()?.join("version.json");
-
-  if let Ok(content) = std::fs::read_to_string(&version_path) {
-    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
-      if let Some(version_str) = json.get("version").and_then(|v| v.as_str()) {
-        // Parse major version from "135.0" or similar
-        let major: u32 = version_str.split('.').next()?.parse().ok()?;
-        return Some(major);
+  // Try to read version.json from the same directory. On macOS the
+  // executable lives in Contents/MacOS/ but version.json ships in
+  // Contents/Resources/ (mirrors upstream `build_file`).
+  let parent = executable_path.parent()?;
+  let mut candidates = vec![parent.join("version.json")];
+  if parent.file_name().is_some_and(|n| n == "MacOS") {
+    if let Some(grandparent) = parent.parent() {
+      candidates.push(grandparent.join("Resources").join("version.json"));
+    }
+  }
+  for version_path in candidates {
+    if let Ok(content) = std::fs::read_to_string(&version_path) {
+      if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
+        if let Some(version_str) = json.get("version").and_then(|v| v.as_str()) {
+          // Parse major version from "135.0" or similar
+          let major: u32 = version_str.split('.').next()?.parse().ok()?;
+          return Some(major);
+        }
       }
     }
   }

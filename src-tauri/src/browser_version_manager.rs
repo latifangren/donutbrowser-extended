@@ -1,6 +1,8 @@
 use crate::api_client::{sort_versions, ApiClient, BrowserRelease};
 use crate::browser::{
-  cloak_asset_name, cloak_free_version_from_tag, GithubRelease, CLOAKBROWSER_RELEASES_API,
+  camoufox_asset_name, camoufox_os_arch, camoufox_version_from_asset, cloak_asset_name,
+  cloak_free_version_from_tag, GithubRelease, CAMOUFOX_FALLBACK_RELEASES_API,
+  CAMOUFOX_RELEASES_API, CLOAKBROWSER_RELEASES_API,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -73,13 +75,22 @@ impl BrowserVersionManager {
           "macos-arm64" | "macos-x64" | "linux-x64" | "linux-arm64" | "windows-x64"
         ))
       }
+      "camoufox" => {
+        // Camoufox builds ship for these platform/arch pairs (upstream
+        // OS_ARCH_MATRIX: Windows has no arm64 build).
+        let platform_key = format!("{os}-{arch}");
+        Ok(matches!(
+          platform_key.as_str(),
+          "macos-arm64" | "macos-x64" | "linux-x64" | "linux-arm64" | "windows-x64"
+        ))
+      }
       _ => Err(format!("Unknown browser: {browser}").into()),
     }
   }
 
   /// Get list of browsers supported on the current platform
   pub fn get_supported_browsers(&self) -> Vec<String> {
-    let all_browsers = vec!["wayfern", "cloak"];
+    let all_browsers = vec!["wayfern", "cloak", "camoufox"];
 
     all_browsers
       .into_iter()
@@ -125,7 +136,7 @@ impl BrowserVersionManager {
     &self,
     browser: &str,
   ) -> Result<BrowserReleaseTypes, Box<dyn std::error::Error + Send + Sync>> {
-    if browser != "wayfern" && browser != "cloak" {
+    if browser != "wayfern" && browser != "cloak" && browser != "camoufox" {
       return Err(format!("Unsupported browser: {browser}").into());
     }
 
@@ -184,6 +195,7 @@ impl BrowserVersionManager {
     let fresh_versions = match browser {
       "wayfern" => self.fetch_wayfern_versions(true).await?,
       "cloak" => self.fetch_cloak_versions().await?,
+      "camoufox" => self.fetch_camoufox_versions().await?,
       _ => return Err(format!("Unsupported browser: {browser}").into()),
     };
 
@@ -254,6 +266,13 @@ impl BrowserVersionManager {
         })
         .collect(),
       "cloak" => merged_versions
+        .into_iter()
+        .map(|version| BrowserVersionInfo {
+          version: version.clone(),
+          date: "".to_string(),
+        })
+        .collect(),
+      "camoufox" => merged_versions
         .into_iter()
         .map(|version| BrowserVersionInfo {
           version: version.clone(),
@@ -355,6 +374,21 @@ impl BrowserVersionManager {
           is_archive: true,
         })
       }
+      "camoufox" => {
+        // Camoufox builds come from GitHub releases. The asset URL is
+        // resolved dynamically in downloader.rs (newest release carrying
+        // this platform's archive); the filename is deterministic per
+        // platform once the full version string is known.
+        let (os, arch) = camoufox_os_arch().ok_or_else(|| {
+          let (os, arch) = Self::get_platform_info();
+          format!("Camoufox has no build for {os}/{arch}")
+        })?;
+        Ok(DownloadInfo {
+          url: CAMOUFOX_RELEASES_API.to_string(),
+          filename: camoufox_asset_name(version, os, arch),
+          is_archive: true,
+        })
+      }
       _ => Err(format!("Unsupported browser: {browser}").into()),
     }
   }
@@ -437,6 +471,48 @@ impl BrowserVersionManager {
     &self,
   ) -> Result<Vec<GithubRelease>, Box<dyn std::error::Error + Send + Sync>> {
     self.api_client.fetch_json(CLOAKBROWSER_RELEASES_API).await
+  }
+
+  /// Camoufox versions with a downloadable archive for this platform,
+  /// newest first. Primary repo first, then the fallback repo, mirroring
+  /// upstream `get_asset`'s scan order.
+  async fn fetch_camoufox_versions(
+    &self,
+  ) -> Result<Vec<String>, Box<dyn std::error::Error + Send + Sync>> {
+    let Some((os, arch)) = camoufox_os_arch() else {
+      return Ok(vec![]);
+    };
+    let releases = self.fetch_camoufox_releases().await?;
+    let mut versions: Vec<String> = releases
+      .iter()
+      .flat_map(|release| release.assets.iter())
+      .filter_map(|asset| camoufox_version_from_asset(&asset.name, os, arch))
+      .collect();
+    versions.dedup();
+    Ok(versions)
+  }
+
+  /// Camoufox releases from the GitHub API (newest first per repo, primary
+  /// repo before fallback), for resolving a pinned version to its platform
+  /// asset download URL. Errors only when both repos fail.
+  pub async fn fetch_camoufox_releases(
+    &self,
+  ) -> Result<Vec<GithubRelease>, Box<dyn std::error::Error + Send + Sync>> {
+    let primary: Result<Vec<GithubRelease>, _> =
+      self.api_client.fetch_json(CAMOUFOX_RELEASES_API).await;
+    let fallback: Result<Vec<GithubRelease>, _> = self
+      .api_client
+      .fetch_json(CAMOUFOX_FALLBACK_RELEASES_API)
+      .await;
+    match (primary, fallback) {
+      (Ok(mut releases), Ok(mut extra)) => {
+        releases.append(&mut extra);
+        Ok(releases)
+      }
+      (Ok(releases), Err(_)) => Ok(releases),
+      (Err(_), Ok(releases)) => Ok(releases),
+      (Err(e), Err(_)) => Err(e),
+    }
   }
 }
 

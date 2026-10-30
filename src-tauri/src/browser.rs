@@ -621,6 +621,75 @@ pub fn select_cloak_release(
   })
 }
 
+/// Camoufox browser builds: plain GitHub Release zips, primary
+/// `daijro/camoufox`, fallback `camoufox/camoufox` (mirrors upstream
+/// `repos.yml` Official entry). Releases arrive newest-first; both repos'
+/// lists are scanned in order, like upstream `get_asset`.
+pub const CAMOUFOX_RELEASES_API: &str =
+  "https://api.github.com/repos/daijro/camoufox/releases?per_page=30";
+pub const CAMOUFOX_FALLBACK_RELEASES_API: &str =
+  "https://api.github.com/repos/camoufox/camoufox/releases?per_page=30";
+
+/// This platform's Camoufox OS/arch tokens, or `None` where no build
+/// ships. Tokens mirror upstream `OS_MAP`/`OS_ARCH_MATRIX`: mac/win/lin
+/// plus x86_64/arm64 (Windows arm64 has no build).
+pub fn camoufox_os_arch() -> Option<(&'static str, &'static str)> {
+  match () {
+    _ if cfg!(all(target_os = "macos", target_arch = "aarch64")) => Some(("mac", "arm64")),
+    _ if cfg!(all(target_os = "macos", target_arch = "x86_64")) => Some(("mac", "x86_64")),
+    _ if cfg!(all(target_os = "windows", target_arch = "x86_64")) => Some(("win", "x86_64")),
+    _ if cfg!(all(target_os = "linux", target_arch = "x86_64")) => Some(("lin", "x86_64")),
+    _ if cfg!(all(target_os = "linux", target_arch = "aarch64")) => Some(("lin", "arm64")),
+    _ => None,
+  }
+}
+
+/// Full version string (`version-build`, e.g. `156.0.1-beta.33`) carried
+/// by a Camoufox release asset for this platform, or `None` when the name
+/// does not match upstream's `{name}-{version}-{build}-{os}.{arch}.zip`
+/// pattern. `version` and `build` contain no dash by construction, so the
+/// remainder splits into exactly three parts.
+pub fn camoufox_version_from_asset(asset_name: &str, os: &str, arch: &str) -> Option<String> {
+  let without_zip = asset_name.strip_suffix(".zip")?;
+  let without_arch = without_zip.strip_suffix(&format!(".{arch}"))?;
+  let without_os = without_arch.strip_suffix(&format!("-{os}"))?;
+  let mut parts = without_os.split('-');
+  let name = parts.next()?;
+  let version = parts.next()?;
+  let build = parts.next()?;
+  if parts.next().is_some() || name.is_empty() || version.is_empty() || build.is_empty() {
+    return None;
+  }
+  if !name.chars().all(|c| c.is_alphanumeric() || c == '_') {
+    return None;
+  }
+  Some(format!("{version}-{build}"))
+}
+
+/// Asset filename for a full Camoufox version string on this platform.
+pub fn camoufox_asset_name(version: &str, os: &str, arch: &str) -> String {
+  format!("camoufox-{version}-{os}.{arch}.zip")
+}
+
+/// Newest release carrying this platform's archive, or the pinned
+/// `version` when given. First match wins, mirroring upstream `get_asset`.
+pub fn select_camoufox_release(
+  releases: &[GithubRelease],
+  version: Option<&str>,
+  os: &str,
+  arch: &str,
+) -> Option<(String, String)> {
+  releases.iter().find_map(|release| {
+    release.assets.iter().find_map(|asset| {
+      let v = camoufox_version_from_asset(&asset.name, os, arch)?;
+      if version.is_some_and(|want| v != want) {
+        return None;
+      }
+      Some((v, asset.browser_download_url.clone()))
+    })
+  })
+}
+
 /// CloakBrowser: open-core Chromium with C++-level fingerprint patching.
 ///
 /// Only the free, keyless builds are ever used; the `-pro` builds (license
@@ -839,22 +908,26 @@ impl Browser for CamoufoxBrowser {
   }
 
   fn get_executable_path(&self, install_dir: &Path) -> Result<PathBuf, Box<dyn std::error::Error>> {
-    // Patched-Firefox layouts differ per OS and per release; accept the
-    // names the Camoufox builds have used.
+    // Current builds ship the binary as `camoufox` (upstream LAUNCH_FILE);
+    // older builds shipped it as `firefox`. Accept the current name first,
+    // keep the old names as fallbacks.
     #[cfg(target_os = "macos")]
     let candidates = [
+      install_dir.join("Camoufox.app/Contents/MacOS/camoufox"),
       install_dir.join("Camoufox.app/Contents/MacOS/firefox"),
       install_dir.join("Firefox.app/Contents/MacOS/firefox"),
       install_dir.join("firefox"),
     ];
     #[cfg(target_os = "windows")]
     let candidates = [
+      install_dir.join("camoufox.exe"),
       install_dir.join("firefox.exe"),
       install_dir.join("firefox/firefox.exe"),
       install_dir.join("bin/firefox.exe"),
     ];
     #[cfg(target_os = "linux")]
     let candidates = [
+      install_dir.join("camoufox-bin"),
       install_dir.join("firefox"),
       install_dir.join("firefox/firefox"),
     ];
@@ -866,7 +939,9 @@ impl Browser for CamoufoxBrowser {
       }
     }
     #[cfg(target_os = "linux")]
-    if let Some(found) = find_file_named(install_dir, "firefox") {
+    if let Some(found) = find_file_named(install_dir, "camoufox-bin")
+      .or_else(|| find_file_named(install_dir, "firefox"))
+    {
       return Ok(found);
     }
     Err(format!("Camoufox executable not found in {}", install_dir.display()).into())
@@ -1040,6 +1115,8 @@ pub struct GithubAsset {
   pub created_at: Option<String>,
   #[serde(default)]
   pub updated_at: Option<String>,
+  #[serde(default)]
+  pub digest: Option<String>,
 }
 
 // Global singleton instance
@@ -1256,6 +1333,7 @@ mod tests {
           state: None,
           created_at: None,
           updated_at: None,
+          digest: None,
         })
         .collect(),
       published_at: String::new(),
@@ -1543,6 +1621,57 @@ mod tests {
       profiles_dir
         .join("12345678-1234-1234-1234-123456789abc")
         .join("profile")
+    );
+  }
+}
+
+#[cfg(test)]
+mod camoufox_download_tests {
+  use super::*;
+
+  #[test]
+  fn test_camoufox_asset_parsing() {
+    assert_eq!(
+      camoufox_version_from_asset("camoufox-156.0.1-beta.33-lin.x86_64.zip", "lin", "x86_64")
+        .as_deref(),
+      Some("156.0.1-beta.33")
+    );
+    assert_eq!(
+      camoufox_version_from_asset("camoufox-156.0.1-beta.33-mac.arm64.zip", "mac", "arm64")
+        .as_deref(),
+      Some("156.0.1-beta.33")
+    );
+    assert_eq!(
+      camoufox_version_from_asset("camoufox-156.0.1-beta.33-win.x86_64.zip", "win", "x86_64")
+        .as_deref(),
+      Some("156.0.1-beta.33")
+    );
+    // Wrong OS/arch tokens do not match.
+    assert_eq!(
+      camoufox_version_from_asset("camoufox-156.0.1-beta.33-lin.x86_64.zip", "mac", "arm64"),
+      None
+    );
+    // Non-zip names, missing build segments, and unrelated assets do not match.
+    assert_eq!(
+      camoufox_version_from_asset(
+        "camoufox-156.0.1-beta.33-lin.x86_64.tar.gz",
+        "lin",
+        "x86_64"
+      ),
+      None
+    );
+    assert_eq!(
+      camoufox_version_from_asset("camoufox-156.0.1-lin.x86_64.zip", "lin", "x86_64"),
+      None
+    );
+    assert_eq!(
+      camoufox_version_from_asset("manifest.json", "lin", "x86_64"),
+      None
+    );
+    // Round-trip: the asset name rebuilds from the parsed version.
+    assert_eq!(
+      camoufox_asset_name("156.0.1-beta.33", "lin", "x86_64"),
+      "camoufox-156.0.1-beta.33-lin.x86_64.zip"
     );
   }
 }

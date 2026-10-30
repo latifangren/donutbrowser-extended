@@ -246,11 +246,23 @@ impl Downloader {
         Ok(download_url)
       }
       BrowserType::Camoufox => {
-        // No distribution endpoint is resolved yet: the old fetch path died
-        // with the deprecation, and the current upstream distribution (a
-        // package install, not a plain archive) still needs verification
-        // before the downloader can point at it.
-        Err("Camoufox download is not available yet".into())
+        // Camoufox builds come from GitHub releases (primary daijro,
+        // fallback camoufox org). The asset name is deterministic per
+        // platform once the full version string is known, so resolution
+        // is a scan for the first release carrying it. (Plain errors
+        // for now: the JSON error codes + frontend entries land with
+        // the picker slice.)
+        let (os, arch) = crate::browser::camoufox_os_arch()
+          .ok_or_else(|| "Camoufox has no build for this platform".to_string())?;
+        let releases = self
+          .version_service
+          .fetch_camoufox_releases()
+          .await
+          .map_err(|e| format!("Camoufox release list unavailable: {e}"))?;
+        let (_, download_url) =
+          crate::browser::select_camoufox_release(&releases, Some(version), os, arch)
+            .ok_or_else(|| format!("Camoufox version {version} has no build for {os}/{arch}"))?;
+        Ok(download_url)
       }
     }
   }
@@ -297,9 +309,22 @@ impl Downloader {
     // Every browser asset is published with a `<asset>.sha256` sidecar. Fetch
     // it before the transfer starts: an asset nobody can verify costs one small
     // request to reject here, or a wasted gigabyte to reject later.
-    let expected_sha256 = self
-      .fetch_expected_archive_checksum(&download_url, browser_type.display_name(), version)
-      .await?;
+    // Camoufox releases publish no `<asset>.sha256` sidecar: upstream
+    // verifies from the GitHub API asset `digest` field instead, so this
+    // path does the same. A missing digest fails the download rather
+    // than skipping verification.
+    let expected_sha256 = match &browser_type {
+      BrowserType::Camoufox => {
+        self
+          .fetch_camoufox_asset_digest(&download_url, version)
+          .await?
+      }
+      _ => {
+        self
+          .fetch_expected_archive_checksum(&download_url, browser_type.display_name(), version)
+          .await?
+      }
+    };
 
     let file_path = self
       .stream_download(
@@ -399,6 +424,46 @@ impl Downloader {
       return Err(unavailable());
     };
     Ok(expected)
+  }
+
+  /// Digest for a Camoufox release asset, from the GitHub API asset
+  /// `digest` field (upstream's verification source). Reuses the
+  /// sidecar path's `BROWSER_CHECKSUM_UNAVAILABLE` code, which already
+  /// has frontend entries, so no new code is introduced here.
+  async fn fetch_camoufox_asset_digest(
+    &self,
+    download_url: &str,
+    version: &str,
+  ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    let unavailable = || -> Box<dyn std::error::Error + Send + Sync> {
+      serde_json::json!({
+        "code": "BROWSER_CHECKSUM_UNAVAILABLE",
+        "params": { "browser": "Camoufox", "version": version }
+      })
+      .to_string()
+      .into()
+    };
+    let releases = self
+      .version_service
+      .fetch_camoufox_releases()
+      .await
+      .map_err(|_| unavailable())?;
+    let digest = releases
+      .iter()
+      .flat_map(|release| release.assets.iter())
+      .find(|asset| asset.browser_download_url == download_url)
+      .and_then(|asset| asset.digest.as_deref())
+      .and_then(|digest| digest.strip_prefix("sha256:"));
+    match digest {
+      Some(digest) if !digest.is_empty() => Ok(digest.to_string()),
+      _ => {
+        log::warn!(
+          "Camoufox asset has no sha256 digest url={}",
+          crate::log_redaction::text(download_url)
+        );
+        Err(unavailable())
+      }
+    }
   }
 
   async fn stream_download(
