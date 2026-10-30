@@ -245,6 +245,13 @@ impl Downloader {
           )?;
         Ok(download_url)
       }
+      BrowserType::Camoufox => {
+        // No distribution endpoint is resolved yet: the old fetch path died
+        // with the deprecation, and the current upstream distribution (a
+        // package install, not a plain archive) still needs verification
+        // before the downloader can point at it.
+        Err("Camoufox download is not available yet".into())
+      }
     }
   }
 

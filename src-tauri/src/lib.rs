@@ -82,6 +82,7 @@ pub mod browser;
 mod browser_runner;
 mod browser_tabs;
 mod browser_version_manager;
+pub mod camoufox;
 mod cdp_target;
 mod checksum;
 mod default_browser;

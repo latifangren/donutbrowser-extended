@@ -47,6 +47,7 @@ donutbrowser/
 │   │   ├── lib.rs                    # Tauri command registration (100+ commands)
 │   │   ├── browser_runner.rs         # Profile launch/kill orchestration
 │   │   ├── browser.rs               # Browser trait & launch logic
+│   │   ├── camoufox/                  # Camoufox (Firefox) engine: fingerprint generation, presets, WebGL sampling
 │   │   ├── profile/                  # Profile CRUD (manager.rs, types.rs), bulk-edit patch (patch.rs), trash
 │   │   ├── proxy_manager.rs         # Proxy lifecycle, connection testing, per-proxy check history
 │   │   ├── proxy_udp.rs             # SOCKS5 UDP ASSOCIATE probe (yes/no/unknown UDP verdict)

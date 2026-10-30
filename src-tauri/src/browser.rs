@@ -19,6 +19,7 @@ pub struct ProxySettings {
 pub enum BrowserType {
   Wayfern,
   Cloak,
+  Camoufox,
 }
 
 impl BrowserType {
@@ -26,6 +27,7 @@ impl BrowserType {
     match self {
       BrowserType::Wayfern => "wayfern",
       BrowserType::Cloak => "cloak",
+      BrowserType::Camoufox => "camoufox",
     }
   }
 
@@ -35,6 +37,7 @@ impl BrowserType {
     match self {
       BrowserType::Wayfern => "Wayfern",
       BrowserType::Cloak => "CloakBrowser",
+      BrowserType::Camoufox => "Camoufox",
     }
   }
 }
@@ -46,14 +49,15 @@ impl std::str::FromStr for BrowserType {
     match s {
       "wayfern" => Ok(BrowserType::Wayfern),
       "cloak" => Ok(BrowserType::Cloak),
+      "camoufox" => Ok(BrowserType::Camoufox),
       _ => Err(format!("Unknown browser type: {s}")),
     }
   }
 }
 
 /// What a browser engine supports. Backends and the UI gate options on these
-/// instead of `browser == "wayfern"` string checks, so a new engine (e.g.
-/// Camoufox) only declares its own set.
+/// instead of `browser == "wayfern"` string checks, so a new engine only
+/// declares its own set.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct EngineCapabilities {
   /// Engine spoofs the OS natively (cross-OS fingerprints need no paywall).
@@ -799,6 +803,120 @@ impl Browser for CloakBrowser {
   }
 }
 
+/// Camoufox: a patched Firefox build that injects its fingerprint from
+/// environment variables (`CAMOU_CONFIG_*`, see `crate::camoufox::env_vars`)
+/// instead of Chromium-style launch flags, so `fingerprint_args` stays at
+/// its default (empty). The runner launch step that builds those env vars
+/// from the profile's saved fingerprint config is not wired yet; this impl
+/// covers type identity, discovery, and CLI args only.
+pub struct CamoufoxBrowser;
+
+impl CamoufoxBrowser {
+  pub fn new() -> Self {
+    Self
+  }
+}
+
+impl Default for CamoufoxBrowser {
+  fn default() -> Self {
+    Self::new()
+  }
+}
+
+impl Browser for CamoufoxBrowser {
+  fn capabilities(&self) -> EngineCapabilities {
+    EngineCapabilities {
+      // The fingerprint is injected into the patched build itself, so any
+      // spoofed OS runs on any host OS with no paywall.
+      cross_os_fingerprint: true,
+      custom_launch_args: true,
+      // Seeds are generated locally; no upstream quota to respect.
+      generation_allowance: false,
+      // The full fingerprint editor is Chromium-oriented; Camoufox starts
+      // with the basic OS picker plus the local seed.
+      full_fingerprint_ui: false,
+    }
+  }
+
+  fn get_executable_path(&self, install_dir: &Path) -> Result<PathBuf, Box<dyn std::error::Error>> {
+    // Patched-Firefox layouts differ per OS and per release; accept the
+    // names the Camoufox builds have used.
+    #[cfg(target_os = "macos")]
+    let candidates = [
+      install_dir.join("Camoufox.app/Contents/MacOS/firefox"),
+      install_dir.join("Firefox.app/Contents/MacOS/firefox"),
+      install_dir.join("firefox"),
+    ];
+    #[cfg(target_os = "windows")]
+    let candidates = [
+      install_dir.join("firefox.exe"),
+      install_dir.join("firefox/firefox.exe"),
+      install_dir.join("bin/firefox.exe"),
+    ];
+    #[cfg(target_os = "linux")]
+    let candidates = [
+      install_dir.join("firefox"),
+      install_dir.join("firefox/firefox"),
+    ];
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+    let candidates: [PathBuf; 0] = [];
+    for candidate in &candidates {
+      if candidate.is_file() {
+        return Ok(candidate.clone());
+      }
+    }
+    #[cfg(target_os = "linux")]
+    if let Some(found) = find_file_named(install_dir, "firefox") {
+      return Ok(found);
+    }
+    Err(format!("Camoufox executable not found in {}", install_dir.display()).into())
+  }
+
+  fn create_launch_args(
+    &self,
+    profile_path: &str,
+    _proxy_settings: Option<&ProxySettings>,
+    url: Option<String>,
+    remote_debugging_port: Option<u16>,
+    headless: bool,
+  ) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+    // Mirrors the old manager launch: a persistent -profile, the remote
+    // debugging port for CDP parity, and -new-tab for the URL. No
+    // -no-remote: Firefox's remote messaging is what lets a second launch
+    // open a URL in the running instance. Proxy is not a Firefox CLI arg;
+    // it rides in prefs.js, applied by the runner launch step.
+    let mut args = vec!["-profile".to_string(), profile_path.to_string()];
+    if let Some(port) = remote_debugging_port {
+      args.push(format!("--remote-debugging-port={port}"));
+    }
+    if headless {
+      args.push("--headless".to_string());
+    }
+    if let Some(url) = url {
+      args.push("-new-tab".to_string());
+      args.push(url);
+    }
+    Ok(args)
+  }
+
+  fn is_version_downloaded(&self, version: &str, binaries_dir: &Path) -> bool {
+    let install_dir = binaries_dir.join("camoufox").join(version);
+    self.get_executable_path(&install_dir).is_ok()
+  }
+
+  fn prepare_executable(&self, executable_path: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    #[cfg(target_os = "linux")]
+    {
+      use std::os::unix::fs::PermissionsExt;
+      let mut perms = std::fs::metadata(executable_path)?.permissions();
+      perms.set_mode(0o755);
+      std::fs::set_permissions(executable_path, perms)?;
+    }
+    let _ = executable_path;
+    Ok(())
+  }
+}
+
 pub struct BrowserFactory;
 
 impl BrowserFactory {
@@ -814,6 +932,7 @@ impl BrowserFactory {
     match browser_type {
       BrowserType::Wayfern => Box::new(WayfernBrowser::new()),
       BrowserType::Cloak => Box::new(CloakBrowser::new()),
+      BrowserType::Camoufox => Box::new(CamoufoxBrowser::new()),
     }
   }
 }
