@@ -246,14 +246,6 @@ impl ProfileManager {
       }
     }
 
-    if browser == "camoufox" {
-      return Err(
-        serde_json::json!({ "code": "CAMOUFOX_REMOVED" })
-          .to_string()
-          .into(),
-      );
-    }
-
     // Check if a profile with this name already exists (case insensitive)
     let existing_profiles = self.list_profiles()?;
     if existing_profiles

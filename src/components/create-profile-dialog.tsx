@@ -124,7 +124,7 @@ interface CreateProfileDialogProps {
   onClose: () => void;
   onCreateProfile: (profileData: {
     name: string;
-    browserStr: "wayfern" | "cloak";
+    browserStr: "wayfern" | "cloak" | "camoufox";
     version: string;
     releaseType: string;
     proxyId?: string;
@@ -164,7 +164,11 @@ export function CreateProfileDialog({
   const [selectedBrowser, setSelectedBrowser] =
     useState<BrowserTypeString>("wayfern");
   const browserDisplayName =
-    selectedBrowser === "cloak" ? "CloakBrowser" : "Wayfern";
+    selectedBrowser === "cloak"
+      ? "CloakBrowser"
+      : selectedBrowser === "camoufox"
+        ? "Camoufox"
+        : "Wayfern";
   const capabilities: EngineCapabilities = ENGINE_CAPABILITIES[selectedBrowser];
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [selectedProxyId, setSelectedProxyId] = useState<string>();
@@ -791,6 +795,7 @@ export function CreateProfileDialog({
                 [
                   { value: "wayfern", label: "Wayfern" },
                   { value: "cloak", label: "CloakBrowser" },
+                  { value: "camoufox", label: "Camoufox" },
                 ] as const
               ).map((option) => (
                 <button

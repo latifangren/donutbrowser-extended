@@ -1051,7 +1051,7 @@ export interface TrashedProfileSummary {
 }
 
 /** Engine ids the UI knows about. Mirrors the Rust `BrowserType`. */
-export type BrowserTypeString = "wayfern" | "cloak";
+export type BrowserTypeString = "wayfern" | "cloak" | "camoufox";
 
 /** What a browser engine supports. Mirrors the Rust `EngineCapabilities`. */
 export interface EngineCapabilities {
@@ -1076,6 +1076,12 @@ export const ENGINE_CAPABILITIES: Record<
     fullFingerprintUi: true,
   },
   cloak: {
+    crossOsFingerprint: true,
+    customLaunchArgs: true,
+    generationAllowance: false,
+    fullFingerprintUi: false,
+  },
+  camoufox: {
     crossOsFingerprint: true,
     customLaunchArgs: true,
     generationAllowance: false,

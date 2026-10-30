@@ -1094,18 +1094,25 @@ impl BrowserRunner {
 
     // Direct HTTP/SOCKS proxies ride along as Firefox prefs in user.js.
     // Xray and VPN need worker processes that only the Wayfern path starts
-    // today. (Plain errors for now: the JSON error codes + frontend
-    // entries land with the picker slice.)
+    // today.
     emit_launch_stage(profile, "network", None);
     let proxy = self.resolve_launch_proxy(profile).await.map_err(err)?;
     if proxy
       .as_ref()
       .is_some_and(|p| crate::xray::is_xray_proxy_type(&p.proxy_type))
     {
-      return Err("Camoufox does not support Xray proxies yet".into());
+      return Err(
+        serde_json::json!({ "code": "CAMOUFOX_XRAY_UNSUPPORTED" })
+          .to_string()
+          .into(),
+      );
     }
     if proxy.is_none() && profile.vpn_id.is_some() {
-      return Err("Camoufox does not support VPN profiles yet".into());
+      return Err(
+        serde_json::json!({ "code": "CAMOUFOX_VPN_UNSUPPORTED" })
+          .to_string()
+          .into(),
+      );
     }
 
     let cdp_port = match remote_debugging_port {
@@ -1173,8 +1180,11 @@ impl BrowserRunner {
         headless,
       )
       .map_err(|e| err(format!("Camoufox launch args failed: {e}")))?;
-    // No filtering yet: the creation-time allowlist for camoufox-managed
-    // switches lands with the picker slice.
+    // Managed switches are stripped, not rejected: custom args can reach
+    // a profile through sync or archives without passing the creation
+    // allowlist, and these two would escape donut's control of the
+    // profile directory and the debugging port. A bare switch consumes
+    // the following arg as its value, so that goes too.
     args.extend(Self::camoufox_custom_launch_args(
       profile.fingerprint_config.as_ref(),
     ));
@@ -1292,10 +1302,29 @@ impl BrowserRunner {
 
   /// Custom launch args stored on a camoufox profile, appended after the
   /// generated args. Mirrors the cloak helper; the field is engine-neutral.
+  /// Managed switches are dropped (see the call site): `-profile` would
+  /// redirect the browser away from the managed profile directory, and
+  /// `--remote-debugging-port` would move the CDP port the runner tracks.
   fn camoufox_custom_launch_args(
     config: Option<&crate::wayfern_manager::FingerprintConfig>,
   ) -> Vec<String> {
-    config.map(|c| c.launch_args.clone()).unwrap_or_default()
+    let args = config.map(|c| c.launch_args.clone()).unwrap_or_default();
+    let mut kept = Vec::with_capacity(args.len());
+    let mut skip_next = false;
+    for arg in args {
+      if skip_next {
+        skip_next = false;
+        continue;
+      }
+      match arg.as_str() {
+        "-profile" | "--remote-debugging-port" => {
+          skip_next = true;
+        }
+        _ if arg.starts_with("-profile=") || arg.starts_with("--remote-debugging-port=") => {}
+        _ => kept.push(arg),
+      }
+    }
+    kept
   }
 
   /// Patch `<profile>/user.js` the way the old manager did: preserve

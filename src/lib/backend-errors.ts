@@ -74,6 +74,10 @@ export type BackendErrorCode =
   | "CLOAK_PRO_KEY_REQUIRED"
   | "CLOAK_XRAY_UNSUPPORTED"
   | "CLOAK_VPN_UNSUPPORTED"
+  | "CAMOUFOX_VERSION_NOT_AVAILABLE"
+  | "CAMOUFOX_NO_BUILD_FOR_PLATFORM"
+  | "CAMOUFOX_XRAY_UNSUPPORTED"
+  | "CAMOUFOX_VPN_UNSUPPORTED"
   | "VPN_NOT_FOUND"
   | "EXTENSION_NOT_FOUND"
   | "EXTENSION_GROUP_NOT_FOUND"
@@ -548,6 +552,16 @@ export function translateBackendError(t: TFunction, err: unknown): string {
       return t("backendErrors.cloakXrayUnsupported");
     case "CLOAK_VPN_UNSUPPORTED":
       return t("backendErrors.cloakVpnUnsupported");
+    case "CAMOUFOX_VERSION_NOT_AVAILABLE":
+      return t("backendErrors.camoufoxVersionNotAvailable", {
+        version: parsed.params?.version ?? "",
+      });
+    case "CAMOUFOX_NO_BUILD_FOR_PLATFORM":
+      return t("backendErrors.camoufoxNoBuildForPlatform");
+    case "CAMOUFOX_XRAY_UNSUPPORTED":
+      return t("backendErrors.camoufoxXrayUnsupported");
+    case "CAMOUFOX_VPN_UNSUPPORTED":
+      return t("backendErrors.camoufoxVpnUnsupported");
     case "VPN_NOT_FOUND":
       return t("backendErrors.vpnNotFound");
     case "EXTENSION_NOT_FOUND":

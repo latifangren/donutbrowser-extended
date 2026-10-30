@@ -2681,7 +2681,11 @@
     "cloakVersionNotAvailable": "CloakBrowser version {{version}} has no free download. Only keyless releases can be downloaded.",
     "cloakProKeyRequired": "CloakBrowser version {{version}} is only available as a key-gated Pro build, which needs a CloakBrowser license key. Pick a free release instead.",
     "cloakXrayUnsupported": "CloakBrowser profiles do not support Xray proxies yet. Use a plain HTTP or SOCKS proxy, or no proxy.",
-    "cloakVpnUnsupported": "CloakBrowser profiles do not support VPN yet."
+    "cloakVpnUnsupported": "CloakBrowser profiles do not support VPN yet.",
+    "camoufoxVersionNotAvailable": "Camoufox version {{version}} has no download for this platform.",
+    "camoufoxNoBuildForPlatform": "Camoufox has no build for this platform.",
+    "camoufoxXrayUnsupported": "Camoufox profiles do not support Xray proxies yet. Use a plain HTTP or SOCKS proxy, or no proxy.",
+    "camoufoxVpnUnsupported": "Camoufox profiles do not support VPN yet."
   },
   "rail": {
     "profiles": "プロファイル",

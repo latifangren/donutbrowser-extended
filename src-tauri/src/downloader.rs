@@ -249,19 +249,25 @@ impl Downloader {
         // Camoufox builds come from GitHub releases (primary daijro,
         // fallback camoufox org). The asset name is deterministic per
         // platform once the full version string is known, so resolution
-        // is a scan for the first release carrying it. (Plain errors
-        // for now: the JSON error codes + frontend entries land with
-        // the picker slice.)
-        let (os, arch) = crate::browser::camoufox_os_arch()
-          .ok_or_else(|| "Camoufox has no build for this platform".to_string())?;
+        // is a scan for the first release carrying it.
+        let (os, arch) = crate::browser::camoufox_os_arch().ok_or_else(|| {
+          serde_json::json!({ "code": "CAMOUFOX_NO_BUILD_FOR_PLATFORM" }).to_string()
+        })?;
         let releases = self
           .version_service
           .fetch_camoufox_releases()
           .await
           .map_err(|e| format!("Camoufox release list unavailable: {e}"))?;
         let (_, download_url) =
-          crate::browser::select_camoufox_release(&releases, Some(version), os, arch)
-            .ok_or_else(|| format!("Camoufox version {version} has no build for {os}/{arch}"))?;
+          crate::browser::select_camoufox_release(&releases, Some(version), os, arch).ok_or_else(
+            || {
+              serde_json::json!({
+                "code": "CAMOUFOX_VERSION_NOT_AVAILABLE",
+                "params": { "version": version }
+              })
+              .to_string()
+            },
+          )?;
         Ok(download_url)
       }
     }
