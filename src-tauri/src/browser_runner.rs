@@ -24,6 +24,13 @@ static PROFILE_LAUNCH_LOCKS: LazyLock<
 static CLOAK_CDP_PORTS: LazyLock<std::sync::Mutex<HashMap<String, u16>>> =
   LazyLock::new(|| std::sync::Mutex::new(HashMap::new()));
 
+/// CDP port per running Camoufox profile, mirroring `CLOAK_CDP_PORTS`:
+/// camoufox launches are plain child processes, so the runner remembers
+/// the port here for "open URL in running browser". Entries are removed
+/// when the profile is killed.
+static CAMOUFOX_CDP_PORTS: LazyLock<std::sync::Mutex<HashMap<String, u16>>> =
+  LazyLock::new(|| std::sync::Mutex::new(HashMap::new()));
+
 /// How long a remote navigation waits for the page to settle.
 ///
 /// A relayed round trip crosses two networks and the page load itself happens
@@ -885,6 +892,19 @@ impl BrowserRunner {
         .await;
     }
 
+    if profile.browser == "camoufox" {
+      return self
+        .launch_camoufox_profile(
+          app_handle,
+          profile,
+          url,
+          remote_debugging_port,
+          headless,
+          kind,
+        )
+        .await;
+    }
+
     Err(format!("Unsupported browser type: {}", profile.browser).into())
   }
 
@@ -1032,11 +1052,378 @@ impl BrowserRunner {
     Ok(updated_profile)
   }
 
+  /// Launch a Camoufox profile: a plain patched-Firefox launch with the
+  /// fingerprint injected via `CAMOU_CONFIG_*` env vars, mirroring the old
+  /// manager's direct spawn (no Playwright). The fingerprint config is
+  /// generated once at first launch and saved beside the profile as
+  /// `camoufox-fingerprint.json`, because the Bayesian sampler is
+  /// unseeded: regenerating per launch would rotate the identity every
+  /// start. It lives in the profile dir (not the profile struct) so no
+  /// `BrowserProfile` literal changes: Firefox ignores the extra file, and
+  /// profile-file sync carries it along, which keeps the identity stable
+  /// across devices too.
+  #[allow(clippy::too_many_arguments)]
+  async fn launch_camoufox_profile(
+    &self,
+    _app_handle: tauri::AppHandle,
+    profile: &BrowserProfile,
+    url: Option<String>,
+    remote_debugging_port: Option<u16>,
+    headless: bool,
+    kind: crate::wayfern_manager::LaunchKind,
+  ) -> Result<BrowserProfile, Box<dyn std::error::Error + Send + Sync>> {
+    let launch_started = std::time::Instant::now();
+    let profile_id = profile.id.to_string();
+    fn err(msg: String) -> Box<dyn std::error::Error + Send + Sync> {
+      msg.into()
+    }
+
+    emit_launch_stage(profile, "executable", None);
+    let executable = self
+      .get_browser_executable_path(profile)
+      .map_err(|e| err(format!("Camoufox executable not found: {e}")))?;
+    crate::browser::create_browser(crate::browser::BrowserType::Camoufox)
+      .prepare_executable(&executable)
+      .map_err(|e| err(format!("Camoufox executable not runnable: {e}")))?;
+
+    let profiles_dir = self.profile_manager.get_profiles_dir();
+    let profile_data_path =
+      crate::ephemeral_dirs::get_effective_profile_path(profile, &profiles_dir);
+    std::fs::create_dir_all(&profile_data_path)?;
+    let profile_path_str = profile_data_path.to_string_lossy().to_string();
+
+    // Direct HTTP/SOCKS proxies ride along as Firefox prefs in user.js.
+    // Xray and VPN need worker processes that only the Wayfern path starts
+    // today. (Plain errors for now: the JSON error codes + frontend
+    // entries land with the picker slice.)
+    emit_launch_stage(profile, "network", None);
+    let proxy = self.resolve_launch_proxy(profile).await.map_err(err)?;
+    if proxy
+      .as_ref()
+      .is_some_and(|p| crate::xray::is_xray_proxy_type(&p.proxy_type))
+    {
+      return Err("Camoufox does not support Xray proxies yet".into());
+    }
+    if proxy.is_none() && profile.vpn_id.is_some() {
+      return Err("Camoufox does not support VPN profiles yet".into());
+    }
+
+    let cdp_port = match remote_debugging_port {
+      Some(port) => port,
+      None => crate::wayfern_manager::WayfernManager::find_free_port()
+        .await
+        .map_err(|e| err(format!("No free CDP port: {e}")))?,
+    };
+
+    // First launch: resolve the proxy-aware geolocation once and persist
+    // it, so the fingerprint timezone matches the exit IP from then on.
+    let mut profile = profile.clone();
+    let needs_location = profile
+      .fingerprint_config
+      .as_ref()
+      .is_none_or(|c| c.location.as_ref().is_none_or(|s| s.is_empty()));
+    if needs_location {
+      if let Some(location) = Self::resolve_cloak_location(proxy.as_ref()).await {
+        let cfg = profile
+          .fingerprint_config
+          .get_or_insert_with(Default::default);
+        cfg.location = Some(location);
+        if let Err(e) = self.save_process_info(&profile) {
+          log::warn!("Camoufox location persist failed profile={profile_id} err=\"{e}\"");
+        }
+      }
+    }
+
+    // Fingerprint config: reuse the saved file, or generate + save it.
+    // A corrupt file errors instead of silently regenerating: a changed
+    // identity would be worse than a visible failure.
+    let fingerprint_path = profile_data_path.join("camoufox-fingerprint.json");
+    let fingerprint_map: HashMap<String, serde_json::Value> =
+      match std::fs::read_to_string(&fingerprint_path) {
+        Ok(saved) => serde_json::from_str(&saved)
+          .map_err(|e| err(format!("Saved Camoufox fingerprint is not valid JSON: {e}")))?,
+        Err(_) => {
+          let material = Self::cloak_fingerprint_material(profile.fingerprint_config.as_ref());
+          let built = Self::build_camoufox_launch_config(&material, &executable, headless)
+            .map_err(|e| err(format!("Camoufox fingerprint generation failed: {e}")))?;
+          let json = built
+            .config_json()
+            .map_err(|e| err(format!("Camoufox fingerprint serialization failed: {e}")))?;
+          if let Err(e) = std::fs::write(&fingerprint_path, &json) {
+            log::warn!("Camoufox fingerprint persist failed profile={profile_id} err=\"{e}\"");
+          }
+          built.fingerprint_config
+        }
+      };
+    let env_vars = crate::camoufox::env_vars::config_to_env_vars(&fingerprint_map)
+      .map_err(|e| err(format!("Camoufox fingerprint to env vars failed: {e}")))?;
+
+    // user.js: always patched (Camoufox's bundled defaults break session
+    // history, extension sideloading, and QUIC-behind-proxy), plus proxy
+    // prefs when a direct proxy is configured.
+    Self::write_camoufox_user_js(&profile_data_path, profile.ephemeral, proxy.as_ref());
+
+    let browser = crate::browser::create_browser(crate::browser::BrowserType::Camoufox);
+    let mut args = browser
+      .create_launch_args(
+        &profile_path_str,
+        proxy.as_ref(),
+        url,
+        Some(cdp_port),
+        headless,
+      )
+      .map_err(|e| err(format!("Camoufox launch args failed: {e}")))?;
+    // No filtering yet: the creation-time allowlist for camoufox-managed
+    // switches lands with the picker slice.
+    args.extend(Self::camoufox_custom_launch_args(
+      profile.fingerprint_config.as_ref(),
+    ));
+
+    emit_launch_stage(&profile, "browser", None);
+    let stderr_log_path = std::env::temp_dir().join(format!("camoufox-stderr-{profile_id}.log"));
+    let mut command = tokio::process::Command::new(&executable);
+    command
+      .args(&args)
+      .stdin(std::process::Stdio::null())
+      .stdout(std::process::Stdio::null());
+    match std::fs::File::create(&stderr_log_path) {
+      Ok(file) => {
+        command.stderr(std::process::Stdio::from(file));
+      }
+      Err(e) => {
+        log::warn!(
+          "Failed to open Camoufox stderr log {}: {e}",
+          stderr_log_path.display()
+        );
+        command.stderr(std::process::Stdio::null());
+      }
+    }
+    for (key, value) in &env_vars {
+      command.env(key, value);
+    }
+    if cfg!(target_os = "linux") {
+      let target_os = profile
+        .fingerprint_config
+        .as_ref()
+        .and_then(|c| c.os.clone())
+        .unwrap_or_else(|| "linux".to_string());
+      if let Some(fontconfig_path) =
+        crate::camoufox::env_vars::get_fontconfig_env(&target_os, &executable)
+      {
+        command.env("FONTCONFIG_PATH", fontconfig_path);
+      }
+    }
+    let mut child = command
+      .spawn()
+      .map_err(|e| err(format!("Failed to start Camoufox: {e}")))?;
+    let pid = child
+      .id()
+      .ok_or_else(|| err("Camoufox started without a PID".into()))?;
+
+    if let Err(e) = Self::wait_for_cdp_ready(&mut child, cdp_port, "Camoufox").await {
+      log::warn!("Camoufox launch failed profile={profile_id} pid={pid} err=\"{e}\"");
+      return Err(e);
+    }
+    CAMOUFOX_CDP_PORTS
+      .lock()
+      .map(|mut ports| ports.insert(profile_id.clone(), cdp_port))
+      .ok();
+
+    log::info!(
+      "Browser launched profile={profile_id} browser=camoufox pid={pid} cdp_port={cdp_port}{}{} elapsed_ms={}",
+      if headless { " headless=true" } else { "" },
+      if kind == crate::wayfern_manager::LaunchKind::Automation {
+        " kind=automation"
+      } else {
+        ""
+      },
+      launch_started.elapsed().as_millis(),
+    );
+
+    let mut updated_profile = profile.clone();
+    updated_profile.process_id = Some(pid);
+    updated_profile.last_launch = Some(
+      SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|e| err(format!("Clock error: {e}")))?
+        .as_secs(),
+    );
+    self.save_process_info(&updated_profile)?;
+    self.publish_launched_profile(&updated_profile);
+
+    Ok(updated_profile)
+  }
+
+  /// Build a Camoufox launch config from neutral fingerprint material.
+  /// Preset-first: when a preset matches the OS + Firefox major version it
+  /// wins; otherwise the Bayesian generator runs. Either way the result is
+  /// random, which is why the caller persists it instead of rebuilding.
+  fn build_camoufox_launch_config(
+    material: &crate::browser::FingerprintMaterial,
+    executable: &std::path::Path,
+    headless: bool,
+  ) -> Result<crate::camoufox::CamoufoxLaunchConfig, Box<dyn std::error::Error>> {
+    use crate::camoufox::{CamoufoxConfigBuilder, ScreenConstraints};
+    let mut builder = CamoufoxConfigBuilder::new();
+    if let Some(os) = material.os.as_deref() {
+      let os = match os.to_ascii_lowercase().as_str() {
+        "windows" | "macos" | "linux" => os.to_string(),
+        _ => String::new(),
+      };
+      if !os.is_empty() {
+        builder = builder.operating_system(&os);
+      }
+    }
+    if let (Some(w), Some(h)) = (material.screen_width, material.screen_height) {
+      builder = builder.screen_constraints(ScreenConstraints {
+        min_width: Some(w),
+        max_width: Some(w),
+        min_height: Some(h),
+        max_height: Some(h),
+      });
+    }
+    builder = builder.block_webrtc(material.webrtc_blocked);
+    builder = builder.headless(headless);
+    if let Some(version) = crate::camoufox::config::get_firefox_version(executable) {
+      builder = builder.ff_version(version);
+    }
+    Ok(builder.build()?)
+  }
+
+  /// Custom launch args stored on a camoufox profile, appended after the
+  /// generated args. Mirrors the cloak helper; the field is engine-neutral.
+  fn camoufox_custom_launch_args(
+    config: Option<&crate::wayfern_manager::FingerprintConfig>,
+  ) -> Vec<String> {
+    config.map(|c| c.launch_args.clone()).unwrap_or_default()
+  }
+
+  /// Patch `<profile>/user.js` the way the old manager did: preserve
+  /// unrelated lines, re-emit the keys Camoufox's bundled defaults break,
+  /// and add proxy prefs when a direct proxy is configured. Best-effort:
+  /// a failed write only warns, the launch continues. Proxy credentials
+  /// are not written here; Firefox negotiates them interactively.
+  fn write_camoufox_user_js(
+    profile_path: &std::path::Path,
+    ephemeral: bool,
+    proxy: Option<&crate::browser::ProxySettings>,
+  ) {
+    let user_js_path = profile_path.join("user.js");
+    if ephemeral {
+      let prefs = concat!(
+        "user_pref(\"browser.cache.disk.enable\", false);\n",
+        "user_pref(\"browser.cache.memory.enable\", true);\n",
+        "user_pref(\"browser.sessionstore.resume_from_crash\", false);\n",
+        "user_pref(\"browser.sessionstore.max_tabs_undo\", 0);\n",
+        "user_pref(\"browser.sessionstore.max_windows_undo\", 0);\n",
+        "user_pref(\"places.history.enabled\", false);\n",
+        "user_pref(\"browser.formfill.enable\", false);\n",
+        "user_pref(\"signon.rememberSignons\", false);\n",
+        "user_pref(\"browser.bookmarks.max_backups\", 0);\n",
+        "user_pref(\"browser.shell.checkDefaultBrowser\", false);\n",
+        "user_pref(\"toolkit.crashreporter.enabled\", false);\n",
+        "user_pref(\"browser.pagethumbnails.capturing_disabled\", true);\n",
+        "user_pref(\"browser.download.manager.addToRecentDocs\", false);\n",
+      );
+      if let Err(e) = std::fs::write(&user_js_path, prefs) {
+        log::warn!("Failed to write ephemeral user.js: {e}");
+      }
+    }
+
+    let mut prefs = String::new();
+    let managed_keys = [
+      "network.proxy.",
+      "network.http.http3.enable",
+      "network.http.http3.enabled",
+      "xpinstall.signatures.required",
+      "extensions.startupScanScopes",
+      "browser.sessionhistory.max_entries",
+      "browser.sessionhistory.max_total_viewers",
+    ];
+    if let Ok(existing) = std::fs::read_to_string(&user_js_path) {
+      for line in existing.lines() {
+        if !managed_keys.iter().any(|k| line.contains(k)) {
+          prefs.push_str(line);
+          prefs.push('\n');
+        }
+      }
+    }
+
+    // Camoufox's bundled camoufox.cfg sets these to 0, which makes
+    // docShell remember zero prior pages and leaves the toolbar
+    // back/forward buttons permanently disabled no matter how much
+    // the user navigates. Restore Firefox defaults.
+    prefs.push_str(
+      "user_pref(\"browser.sessionhistory.max_entries\", 50);\n\
+       user_pref(\"browser.sessionhistory.max_total_viewers\", -1);\n",
+    );
+
+    // Required for sideloaded extensions:
+    // - signatures.required=false accepts unsigned .xpi (Camoufox is built
+    //   without MOZ_REQUIRE_SIGNING so this is honored).
+    // - startupScanScopes=1 rescans SCOPE_PROFILE on each launch so newly
+    //   dropped .xpi files in <profile>/extensions/ get registered.
+    prefs.push_str(
+      "user_pref(\"xpinstall.signatures.required\", false);\n\
+       user_pref(\"extensions.startupScanScopes\", 1);\n",
+    );
+
+    // Disable HTTP/3 / QUIC. Camoufox always sits behind a proxy, and
+    // Firefox's QUIC stack bypasses configured HTTP proxies and goes
+    // direct UDP to the remote host. With an upstream proxy that's the
+    // only allowed egress, that traffic silently fails and pages won't
+    // load. (Chromium suppresses QUIC under a proxy on its own, so
+    // Wayfern doesn't need the equivalent toggle.) Both pref names are
+    // emitted because they've been renamed across FF versions and either
+    // could be the active one at runtime.
+    prefs.push_str(
+      "user_pref(\"network.http.http3.enable\", false);\n\
+       user_pref(\"network.http.http3.enabled\", false);\n",
+    );
+
+    if let Some(p) = proxy {
+      let proxy_type = p.proxy_type.to_ascii_lowercase();
+      let host = p.host.as_str();
+      let port = p.port;
+      match proxy_type.as_str() {
+        "socks5" | "socks4" => {
+          let version = if proxy_type == "socks5" { 5 } else { 4 };
+          prefs.push_str(&format!(
+            "user_pref(\"network.proxy.type\", 1);\n\
+             user_pref(\"network.proxy.socks\", \"{host}\");\n\
+             user_pref(\"network.proxy.socks_port\", {port});\n\
+             user_pref(\"network.proxy.socks_version\", {version});\n\
+             user_pref(\"network.proxy.socks_remote_dns\", true);\n"
+          ));
+        }
+        _ => {
+          prefs.push_str(&format!(
+            "user_pref(\"network.proxy.type\", 1);\n\
+             user_pref(\"network.proxy.http\", \"{host}\");\n\
+             user_pref(\"network.proxy.http_port\", {port});\n\
+             user_pref(\"network.proxy.ssl\", \"{host}\");\n\
+             user_pref(\"network.proxy.ssl_port\", {port});\n\
+             user_pref(\"network.proxy.no_proxies_on\", \"\");\n"
+          ));
+        }
+      }
+    }
+
+    if let Err(e) = std::fs::write(&user_js_path, prefs) {
+      log::warn!("Failed to write user.js: {e}");
+    }
+  }
+
   /// Poll the DevTools HTTP endpoint until it answers or the browser dies.
   /// Kills a browser that never becomes ready so no orphan is left behind.
-  async fn wait_for_cloak_cdp_ready(
+  /// Poll the DevTools HTTP endpoint until it answers or the browser dies.
+  /// Kills a browser that never becomes ready so no orphan is left behind.
+  /// Shared by cloak and camoufox: both serve `/json/version` on the
+  /// remote-debugging port.
+  async fn wait_for_cdp_ready(
     child: &mut tokio::process::Child,
     port: u16,
+    engine: &str,
   ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let url = format!("http://127.0.0.1:{port}/json/version");
     let client = reqwest::Client::builder()
@@ -1046,7 +1433,7 @@ impl BrowserRunner {
     loop {
       if let Ok(Some(status)) = child.try_wait() {
         let _ = child.kill().await;
-        return Err(format!("CloakBrowser exited before CDP was ready: {status}").into());
+        return Err(format!("{engine} exited before CDP was ready: {status}").into());
       }
       if client
         .get(&url)
@@ -1059,10 +1446,17 @@ impl BrowserRunner {
       }
       if std::time::Instant::now() >= deadline {
         let _ = child.kill().await;
-        return Err(format!("CloakBrowser CDP not ready after 60s on port {port}").into());
+        return Err(format!("{engine} CDP not ready after 60s on port {port}").into());
       }
       tokio::time::sleep(Duration::from_millis(500)).await;
     }
+  }
+
+  async fn wait_for_cloak_cdp_ready(
+    child: &mut tokio::process::Child,
+    port: u16,
+  ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    Self::wait_for_cdp_ready(child, port, "CloakBrowser").await
   }
 
   /// Custom launch args stored on a cloak profile, appended after the
@@ -1246,6 +1640,42 @@ impl BrowserRunner {
         return Err(
           format!(
             "CloakBrowser refused to open the URL (status {})",
+            resp.status().as_u16()
+          )
+          .into(),
+        );
+      }
+      return Ok(());
+    }
+
+    if profile.browser == "camoufox" {
+      let port = CAMOUFOX_CDP_PORTS
+        .lock()
+        .map(|ports| ports.get(&profile.id.to_string()).copied())
+        .unwrap_or_default();
+      let Some(port) = port else {
+        return Err("Camoufox is not running for this profile".into());
+      };
+      // Firefox's remote agent serves the same /json/new endpoint.
+      // Whether it accepts the PUT shape on the user's build is a
+      // Windows launch-test verification point, not an assumption.
+      let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .build()?;
+      let resp = client
+        .put(format!(
+          "http://127.0.0.1:{port}/json/new?{}",
+          urlencoding::encode(url)
+        ))
+        .send()
+        .await
+        .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> {
+          format!("Camoufox CDP unreachable: {e}").into()
+        })?;
+      if !resp.status().is_success() {
+        return Err(
+          format!(
+            "Camoufox refused to open the URL (status {})",
             resp.status().as_u16()
           )
           .into(),
@@ -1699,6 +2129,48 @@ impl BrowserRunner {
         );
       }
       CLOAK_CDP_PORTS
+        .lock()
+        .map(|mut ports| ports.remove(&profile.id.to_string()))
+        .ok();
+      return self.finish_kill_browser_process(&app_handle, profile).await;
+    }
+
+    if profile.browser == "camoufox" {
+      if let Some(pid) = profile.process_id {
+        #[cfg(any(target_os = "macos", target_os = "linux"))]
+        let profile_path_str = {
+          let profiles_dir = self.profile_manager.get_profiles_dir();
+          crate::ephemeral_dirs::get_effective_profile_path(profile, &profiles_dir)
+            .to_string_lossy()
+            .to_string()
+        };
+
+        #[cfg(target_os = "macos")]
+        let kill_result =
+          crate::platform_browser::macos::kill_browser_process_impl(pid, Some(&profile_path_str))
+            .await;
+        #[cfg(target_os = "linux")]
+        let kill_result =
+          crate::platform_browser::linux::kill_browser_process_impl(pid, Some(&profile_path_str))
+            .await;
+        #[cfg(target_os = "windows")]
+        let kill_result = crate::platform_browser::windows::kill_browser_process_impl(pid).await;
+        #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+        let kill_result: Result<(), Box<dyn std::error::Error + Send + Sync>> =
+          Err("Unsupported platform".into());
+
+        if let Err(e) = kill_result {
+          log::warn!(
+            "Camoufox kill failed profile={} pid={pid} err=\"{e}\"",
+            profile.id
+          );
+        } else {
+          log::info!("Camoufox stopped profile={} pid={pid}", profile.id);
+        }
+      } else {
+        log::debug!("Camoufox kill with no recorded PID profile={}", profile.id);
+      }
+      CAMOUFOX_CDP_PORTS
         .lock()
         .map(|mut ports| ports.remove(&profile.id.to_string()))
         .ok();
